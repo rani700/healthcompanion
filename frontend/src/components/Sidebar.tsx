@@ -8,6 +8,7 @@ type Props = {
   onSelect: (id: string) => void;
   onCreate: (name: string) => Promise<void>;
   onLogout: () => void;
+  onHome: () => void;
 };
 
 function initials(name: string): string {
@@ -26,6 +27,7 @@ export default function Sidebar({
   onSelect,
   onCreate,
   onLogout,
+  onHome,
 }: Props) {
   const [name, setName] = useState("");
   const [adding, setAdding] = useState(false);
@@ -46,7 +48,7 @@ export default function Sidebar({
 
   return (
     <aside className="rail">
-      <div className="brand">
+      <button className="brand" onClick={onHome} title="Home">
         <span className="brand-mark" aria-hidden>
           ✚
         </span>
@@ -54,7 +56,7 @@ export default function Sidebar({
           <span className="brand-name">HealthCompanion</span>
           <span className="brand-sub">patient records</span>
         </div>
-      </div>
+      </button>
 
       <div className="roster">
         <div className="roster-head">

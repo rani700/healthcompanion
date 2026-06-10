@@ -132,6 +132,7 @@ export default function App() {
         onSelect={setSelectedId}
         onCreate={createPatient}
         onLogout={logout}
+        onHome={() => setSelectedId(null)}
       />
 
       <main className="stage">
@@ -145,6 +146,14 @@ export default function App() {
           <>
             <header className="patient-header">
               <div>
+                {user.role === "doctor" && (
+                  <button
+                    className="back-btn"
+                    onClick={() => setSelectedId(null)}
+                  >
+                    ← All patients
+                  </button>
+                )}
                 <h1>{selected.name}</h1>
                 <span className="patient-id">{selected.id}</span>
               </div>

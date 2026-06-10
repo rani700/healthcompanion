@@ -70,6 +70,19 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  /* reset button defaults — the brand doubles as a "home" control */
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  margin: -4px;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.16s ease;
+}
+.brand:hover {
+  background: var(--surface);
 }
 .brand-mark {
   display: grid;
@@ -323,6 +336,24 @@ button:disabled {
   justify-content: space-between;
   padding: 30px 36px 22px;
   border-bottom: 1px solid var(--line);
+}
+.back-btn {
+  border: 0;
+  background: transparent;
+  color: var(--green-deep);
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 0;
+  margin: 0 0 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: opacity 0.16s ease;
+}
+.back-btn:hover {
+  opacity: 0.65;
 }
 .patient-header h1 {
   font-family: var(--serif);
