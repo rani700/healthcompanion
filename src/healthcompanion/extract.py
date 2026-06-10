@@ -12,7 +12,7 @@ import mimetypes
 from pathlib import Path
 
 import config
-from healthcompanion.gemini_client import get_client
+from healthcompanion.gemini_client import call_with_retry, get_client
 
 # Map common extensions to the MIME types Gemini accepts.
 _MIME_BY_EXT = {
@@ -76,9 +76,11 @@ def extract_text(path: str | Path) -> str:
         uploaded = client.files.upload(file=str(path))
         contents = [_EXTRACTION_PROMPT, uploaded]
 
-    response = client.models.generate_content(
-        model=config.MODEL_GEN,
-        contents=contents,
+    response = call_with_retry(
+        lambda: client.models.generate_content(
+            model=config.MODEL_GEN,
+            contents=contents,
+        )
     )
     text = (response.text or "").strip()
     if not text:

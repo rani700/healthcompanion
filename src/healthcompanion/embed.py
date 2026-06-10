@@ -7,7 +7,7 @@ RETRIEVAL_QUERY) — this asymmetric pairing measurably improves retrieval quali
 from __future__ import annotations
 
 import config
-from healthcompanion.gemini_client import get_client
+from healthcompanion.gemini_client import call_with_retry, get_client
 
 
 def _embed(texts: list[str], task_type: str) -> list[list[float]]:
@@ -16,13 +16,15 @@ def _embed(texts: list[str], task_type: str) -> list[list[float]]:
     client = get_client()
     from google.genai import types
 
-    result = client.models.embed_content(
-        model=config.MODEL_EMBED,
-        contents=texts,
-        config=types.EmbedContentConfig(
-            task_type=task_type,
-            output_dimensionality=config.EMBED_DIM,
-        ),
+    result = call_with_retry(
+        lambda: client.models.embed_content(
+            model=config.MODEL_EMBED,
+            contents=texts,
+            config=types.EmbedContentConfig(
+                task_type=task_type,
+                output_dimensionality=config.EMBED_DIM,
+            ),
+        )
     )
     return [e.values for e in result.embeddings]
 

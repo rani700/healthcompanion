@@ -10,7 +10,7 @@ from typing import Any
 import config
 from healthcompanion import patients, vectorstore
 from healthcompanion.embed import embed_query
-from healthcompanion.gemini_client import get_client
+from healthcompanion.gemini_client import call_with_retry, get_client
 
 _ROLE_GUIDANCE = {
     "doctor": (
@@ -82,13 +82,15 @@ def ask(
     client = get_client()
     from google.genai import types
 
-    response = client.models.generate_content(
-        model=config.MODEL_GEN,
-        contents=question,
-        config=types.GenerateContentConfig(
-            system_instruction=system,
-            temperature=0.2,
-        ),
+    response = call_with_retry(
+        lambda: client.models.generate_content(
+            model=config.MODEL_GEN,
+            contents=question,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=0.2,
+            ),
+        )
     )
 
     sources = _dedupe_sources(hits)
