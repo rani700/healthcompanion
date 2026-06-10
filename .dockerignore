@@ -1,0 +1,14 @@
+.git
+.venv
+data
+.env
+**/node_modules
+frontend/dist
+__pycache__
+**/__pycache__
+.pytest_cache
+*.png
+scripts
+tests
+/tmp
+.claude
