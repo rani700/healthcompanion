@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, AuthExpired, type Document, type Patient } from "./api";
 import { useAuth } from "./auth";
 import Login from "./components/Login";
@@ -16,6 +16,7 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [welcomeName, setWelcomeName] = useState("");
+  const welcomeInputRef = useRef<HTMLInputElement>(null);
 
   // Centralized error handling — drop the session on auth failures.
   const handle = useCallback(
@@ -173,9 +174,19 @@ export default function App() {
           </>
         ) : (
           <div className="welcome">
-            <span className="welcome-mark" aria-hidden>
-              ✚
-            </span>
+            {user.role === "doctor" ? (
+              <button
+                className="welcome-mark clickable"
+                title="Add a patient"
+                onClick={() => welcomeInputRef.current?.focus()}
+              >
+                ✚
+              </button>
+            ) : (
+              <span className="welcome-mark" aria-hidden>
+                ✚
+              </span>
+            )}
             <h1>{user.role === "doctor" ? "Select a patient" : "Welcome"}</h1>
             <p>
               {user.role === "doctor"
@@ -194,6 +205,7 @@ export default function App() {
                 }}
               >
                 <input
+                  ref={welcomeInputRef}
                   value={welcomeName}
                   onChange={(e) => setWelcomeName(e.target.value)}
                   placeholder="New patient's name"

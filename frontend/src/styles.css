@@ -338,22 +338,26 @@ button:disabled {
   border-bottom: 1px solid var(--line);
 }
 .back-btn {
-  border: 0;
-  background: transparent;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-raised);
   color: var(--green-deep);
   font-family: var(--sans);
   font-weight: 600;
   font-size: 13px;
-  padding: 0;
-  margin: 0 0 8px;
+  padding: 6px 13px;
+  margin: 0 0 12px;
+  border-radius: 999px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  transition: opacity 0.16s ease;
+  gap: 6px;
+  box-shadow: var(--shadow);
+  transition: all 0.16s ease;
 }
 .back-btn:hover {
-  opacity: 0.65;
+  border-color: var(--green);
+  color: var(--green-deep);
+  background: var(--green-wash);
 }
 .patient-header h1 {
   font-family: var(--serif);
@@ -686,6 +690,16 @@ button:disabled {
   color: var(--green);
   font-size: 30px;
   margin-bottom: 20px;
+}
+.welcome-mark.clickable {
+  border: 0;
+  cursor: pointer;
+  transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+.welcome-mark.clickable:hover {
+  background: var(--green);
+  color: #f4f1e8;
+  transform: translateY(-2px);
 }
 .welcome h1 {
   font-family: var(--serif);
