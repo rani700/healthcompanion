@@ -699,6 +699,33 @@ button:disabled {
   line-height: 1.6;
   margin: 0;
 }
+.welcome-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 24px;
+  justify-content: center;
+}
+.welcome-add input {
+  min-width: 220px;
+}
+.welcome-add button {
+  border: 0;
+  background: var(--green);
+  color: #f4f1e8;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 9px 18px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+.welcome-add button:hover {
+  background: var(--green-deep);
+}
+.welcome-add button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 /* ---------- Scrollbars ---------- */
 ::-webkit-scrollbar {
@@ -938,11 +965,41 @@ button:disabled {
 }
 
 @media (max-width: 900px) {
+  html,
+  body,
+  #root {
+    height: auto;
+    min-height: 100%;
+  }
   .app {
     grid-template-columns: 1fr;
+    height: auto;
+  }
+  /* Let the sidebar size to its content and the page scroll, so the roster
+     and the Add-patient form are always reachable on small screens. */
+  .rail {
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .roster {
+    flex: none;
+  }
+  .patient-list {
+    overflow: visible;
+  }
+  .stage {
+    overflow: visible;
   }
   .workspace {
     grid-template-columns: 1fr;
+  }
+  .welcome-add {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .welcome-add input {
+    min-width: 0;
   }
   .auth-screen {
     grid-template-columns: 1fr;

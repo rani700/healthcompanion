@@ -15,6 +15,7 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [welcomeName, setWelcomeName] = useState("");
 
   // Centralized error handling — drop the session on auth failures.
   const handle = useCallback(
@@ -181,6 +182,28 @@ export default function App() {
                 ? "Choose someone from the roster, or add a new patient, to view their records and ask grounded questions."
                 : "Your record is loading. Upload a document to get started."}
             </p>
+            {user.role === "doctor" && (
+              <form
+                className="welcome-add"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const n = welcomeName.trim();
+                  if (!n) return;
+                  await createPatient(n);
+                  setWelcomeName("");
+                }}
+              >
+                <input
+                  value={welcomeName}
+                  onChange={(e) => setWelcomeName(e.target.value)}
+                  placeholder="New patient's name"
+                  aria-label="New patient's name"
+                />
+                <button type="submit" disabled={!welcomeName.trim()}>
+                  Add patient
+                </button>
+              </form>
+            )}
           </div>
         )}
       </main>
