@@ -152,13 +152,16 @@ def list_documents(patient_id: str, user: dict = Depends(current_user)):
 
 
 @app.post("/patients/{patient_id}/documents")
-async def upload_document(
+def upload_document(
     patient_id: str,
     file: UploadFile = File(...),
     doc_type: str = Form("other"),
     doc_date: str | None = Form(None),
     user: dict = Depends(current_user),
 ):
+    # NOTE: a plain `def` (not `async`) so Starlette runs this in a threadpool.
+    # Ingestion makes blocking Gemini calls; running it on the event loop would
+    # stall health probes and every other request.
     _authorize_patient(user, patient_id)
     config.ensure_dirs()
 
