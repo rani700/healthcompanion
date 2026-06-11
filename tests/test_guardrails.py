@@ -8,6 +8,44 @@ from healthcompanion import guardrails
 from healthcompanion.guardrails import NotMedicalDocument, assert_medical
 
 
+class _Resp:
+    def __init__(self, text):
+        self.text = text
+
+
+class _FakeModels:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def generate_content(self, model, contents, config=None):
+        # Exercises the real prompt build — would raise if .format() were used
+        # on the JSON-containing template.
+        assert "Document content:" in contents
+        return _Resp(self.payload)
+
+
+class _FakeClient:
+    def __init__(self, payload):
+        self.models = _FakeModels(payload)
+
+
+def test_classify_document_builds_prompt_and_parses(monkeypatch):
+    monkeypatch.setattr(
+        guardrails, "get_client",
+        lambda: _FakeClient('{"medical": false, "type": "non_medical", "reason": "marksheet"}'),
+    )
+    out = guardrails.classify_document("Maths 95 Physics 88")
+    assert out["medical"] is False and out["type"] == "non_medical"
+
+
+def test_classify_document_failopen_on_bad_json(monkeypatch):
+    monkeypatch.setattr(
+        guardrails, "get_client", lambda: _FakeClient("not json at all"),
+    )
+    out = guardrails.classify_document("whatever")
+    assert out["medical"] is True  # fail open, never block on a parse glitch
+
+
 def test_assert_medical_allows_medical(monkeypatch):
     monkeypatch.setattr(
         guardrails, "classify_document",

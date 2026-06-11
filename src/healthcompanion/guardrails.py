@@ -26,12 +26,7 @@ Things that are NOT medical: academic marksheets/certificates, IDs, invoices for
 non-medical goods, selfies or random photos, screenshots of chats, memes, receipts.
 
 Respond with ONLY compact JSON, no prose:
-{"medical": true|false, "type": "rx|lab|imaging|note|other|non_medical", "reason": "<=12 words"}
-
-Document content:
-\"\"\"
-{content}
-\"\"\""""
+{"medical": true|false, "type": "rx|lab|imaging|note|other|non_medical", "reason": "<=12 words"}"""
 
 
 def classify_document(text: str) -> dict:
@@ -40,10 +35,13 @@ def classify_document(text: str) -> dict:
     from google.genai import types
 
     snippet = (text or "")[:6000]
+    # Build by concatenation, NOT str.format — the prompt contains literal JSON
+    # braces that .format() would misread as substitution fields.
+    prompt = f'{_CLASSIFY_PROMPT}\n\nDocument content:\n"""\n{snippet}\n"""'
     resp = call_with_retry(
         lambda: client.models.generate_content(
             model=config.MODEL_GEN,
-            contents=_CLASSIFY_PROMPT.format(content=snippet),
+            contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0,
                 response_mime_type="application/json",
