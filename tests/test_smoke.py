@@ -62,7 +62,7 @@ class _FakeClient:
 def env(tmp_path, monkeypatch):
     """Point storage at a temp dir, reset singletons, and mock the Gemini client."""
     import config
-    from healthcompanion import embed, rag, vectorstore
+    from healthcompanion import embed, guardrails, rag, vectorstore
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "CHROMA_DIR", tmp_path / "chroma")
@@ -76,6 +76,11 @@ def env(tmp_path, monkeypatch):
     fake = _FakeClient(captured, config.EMBED_DIM)
     monkeypatch.setattr(embed, "get_client", lambda: fake)
     monkeypatch.setattr(rag, "get_client", lambda: fake)
+    # Treat ingested test docs as medical (the classifier is tested separately).
+    monkeypatch.setattr(
+        guardrails, "classify_document",
+        lambda text: {"medical": True, "type": "rx", "reason": "test"},
+    )
     return captured
 
 

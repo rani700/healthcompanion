@@ -41,6 +41,9 @@ TOP_K = 5
 # Inline-bytes ceiling for the Gemini request; above this we use the Files API.
 INLINE_MAX_BYTES = 20 * 1024 * 1024  # 20 MB
 
+# Hard cap on a single uploaded file.
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
+
 
 def ensure_dirs() -> None:
     """Create the runtime data directories if they don't exist."""

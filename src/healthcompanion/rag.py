@@ -33,6 +33,8 @@ Rules:
 - Cite the source for each fact as (source: <filename>, <date>) using the excerpt's
   document type and date.
 - Never invent medications, dosages, dates, or values.
+- Do not provide diagnoses or new treatment recommendations beyond what the
+  records state; for medical decisions, advise consulting a qualified clinician.
 - {role_guidance}
 
 Patient record excerpts:

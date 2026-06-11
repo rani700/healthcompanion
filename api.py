@@ -34,6 +34,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from healthcompanion import auth, patients
+from healthcompanion.guardrails import NotMedicalDocument
 from healthcompanion.ingest import ingest_document
 from healthcompanion.rag import ask as rag_ask
 from healthcompanion.security import create_token, decode_token
@@ -166,8 +167,17 @@ async def upload_document(
     with dest.open("wb") as out:
         shutil.copyfileobj(file.file, out)
 
+    # Reject oversized files.
+    if dest.stat().st_size > config.MAX_UPLOAD_BYTES:
+        dest.unlink(missing_ok=True)
+        mb = config.MAX_UPLOAD_BYTES // (1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"File too large (max {mb} MB).")
+
     try:
         return ingest_document(patient_id, dest, doc_type=doc_type, doc_date=doc_date)
+    except NotMedicalDocument as e:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))
 

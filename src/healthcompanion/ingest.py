@@ -10,6 +10,7 @@ from healthcompanion import patients, vectorstore
 from healthcompanion.chunk import chunk_text
 from healthcompanion.embed import embed_documents
 from healthcompanion.extract import extract_text
+from healthcompanion.guardrails import assert_medical
 
 
 def ingest_document(
@@ -30,6 +31,10 @@ def ingest_document(
     filename = path.name
 
     text = extract_text(path)
+
+    # Guardrail: only genuine medical documents may enter a patient record.
+    assert_medical(text)
+
     chunks = chunk_text(text)
     if not chunks:
         raise RuntimeError(f"No text extracted from {filename}")
