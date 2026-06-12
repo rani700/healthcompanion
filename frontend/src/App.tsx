@@ -267,6 +267,7 @@ export default function App() {
                     : documents
                 }
                 visits={visits}
+                activeVisitId={selectedVisitId}
                 busy={uploading}
                 onUpload={upload}
               />

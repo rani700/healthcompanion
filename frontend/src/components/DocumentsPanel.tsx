@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Document, Visit } from "../api";
 
 type Props = {
   documents: Document[];
   visits: Visit[];
+  activeVisitId: string | null;
   busy: boolean;
   onUpload: (
     file: File,
@@ -30,6 +31,7 @@ const TYPE_GLYPH: Record<string, string> = {
 export default function DocumentsPanel({
   documents,
   visits,
+  activeVisitId,
   busy,
   onUpload,
 }: Props) {
@@ -40,9 +42,18 @@ export default function DocumentsPanel({
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const openVisits = visits.filter((v) => v.status === "open");
+  // When a visit is focused, default uploads to that visit.
+  useEffect(() => {
+    setVisitId(activeVisitId ?? "");
+  }, [activeVisitId]);
+
   const visitTitle = (id: string | null) =>
     id ? visits.find((v) => v.id === id)?.title : null;
+
+  // Visits selectable for an upload: open ones, plus the focused visit.
+  const selectable = visits.filter(
+    (v) => v.status === "open" || v.id === activeVisitId,
+  );
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -110,19 +121,23 @@ export default function DocumentsPanel({
             {busy ? "Reading…" : "Ingest"}
           </button>
         </div>
-        <select
-          className="visit-select"
-          value={visitId}
-          onChange={(e) => setVisitId(e.target.value)}
-          aria-label="Attach to visit"
-        >
-          <option value="">General (no visit)</option>
-          {openVisits.map((v) => (
-            <option key={v.id} value={v.id}>
-              Visit: {v.title}
-            </option>
-          ))}
-        </select>
+        <label className="visit-attach">
+          <span>File under</span>
+          <select
+            className="visit-select"
+            value={visitId}
+            onChange={(e) => setVisitId(e.target.value)}
+            aria-label="Attach to visit"
+          >
+            <option value="">General (no visit)</option>
+            {selectable.map((v) => (
+              <option key={v.id} value={v.id}>
+                Visit: {v.title}
+                {v.status === "closed" ? " (closed)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
       </form>
 
       <ul className="doc-list">

@@ -734,6 +734,20 @@ button:disabled {
   margin-top: 8px;
   font-size: 13px;
 }
+.visit-attach {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.visit-attach .visit-select {
+  margin-top: 0;
+  flex: 1;
+}
 .visit-create select {
   max-width: 160px;
 }
