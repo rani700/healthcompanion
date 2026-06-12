@@ -31,7 +31,15 @@ export default function Sidebar({
 }: Props) {
   const [name, setName] = useState("");
   const [adding, setAdding] = useState(false);
+  const [query, setQuery] = useState("");
   const isDoctor = user.role === "doctor";
+
+  const q = query.trim().toLowerCase();
+  const visible = q
+    ? patients.filter(
+        (p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q),
+      )
+    : patients;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -61,11 +69,39 @@ export default function Sidebar({
       <div className="roster">
         <div className="roster-head">
           <span>{isDoctor ? "Patients" : "Your record"}</span>
-          {isDoctor && <span className="count">{patients.length}</span>}
+          {isDoctor && (
+            <span className="count">
+              {q ? `${visible.length}/${patients.length}` : patients.length}
+            </span>
+          )}
         </div>
 
+        {isDoctor && patients.length > 0 && (
+          <div className="patient-search">
+            <span className="search-icon" aria-hidden>
+              ⌕
+            </span>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search patients…"
+              aria-label="Search patients"
+            />
+            {query && (
+              <button
+                className="search-clear"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                title="Clear"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
+
         <ul className="patient-list">
-          {patients.map((p) => (
+          {visible.map((p) => (
             <li key={p.id}>
               <button
                 className={`patient ${p.id === selectedId ? "active" : ""}`}
@@ -83,6 +119,9 @@ export default function Sidebar({
             <li className="empty-hint">
               {isDoctor ? "No patients yet — add one below." : "No record found."}
             </li>
+          )}
+          {patients.length > 0 && visible.length === 0 && (
+            <li className="empty-hint">No patients match “{query}”.</li>
           )}
         </ul>
 
