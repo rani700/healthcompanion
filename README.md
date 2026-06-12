@@ -1,116 +1,166 @@
-# HealthCompanion — Per-Patient Medical RAG Core
+<div align="center">
 
-A backend that gives **each patient a private, searchable knowledge base** built from
-their own medical documents (lab reports, prescriptions, discharge notes — including
-**scanned and handwritten** ones). Doctors and patients can ask natural-language
-questions and get answers grounded *only* in that patient's records.
+# 🏥 HealthCompanion
 
-Powered entirely by **Google Gemini**: multimodal vision reads scanned/handwritten
-documents (no separate OCR engine), `gemini-embedding-001` produces embeddings, and
-`gemini-2.5-flash` answers questions. Vectors live in a local **ChromaDB**; a small
-**SQLite** catalog tracks patients and documents.
+### A per-patient medical RAG system — upload records, ask grounded questions, get cited answers.
 
-> This is the **RAG core** (no web portal UI yet). It's exposed via a thin FastAPI so a
-> React frontend can be added later.
+[![Live Demo](https://img.shields.io/badge/Live_Demo-healthcompanion.codeshare.co.in-1f6b4f?style=for-the-badge)](https://healthcompanion.codeshare.co.in)
 
-## Pipeline
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-TS-61DAFB?logo=react&logoColor=white)
+![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?logo=googlegemini&logoColor=white)
+![ChromaDB](https://img.shields.io/badge/ChromaDB-vector_search-FF6B6B)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-ArgoCD-326CE5?logo=kubernetes&logoColor=white)
+![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)
+
+</div>
+
+---
+
+**HealthCompanion** gives every patient a private, searchable medical record. Doctors
+and patients upload documents — prescriptions, lab reports, clinical notes, **including
+scanned and handwritten ones** — and ask natural-language questions that are answered
+**only from that patient's documents**, with source citations. It models how care
+actually works: authentication with roles, **visits/episodes** (a patient treated by
+different doctors for different problems over time), a doctor directory, AI summaries,
+and content guardrails — running live on Kubernetes with full CI/CD.
+
+> ⚠️ Built for **synthetic / de-identified data** as a portfolio project. Real patient
+> PHI would require Vertex AI under a BAA, audit logging, and stricter controls.
+
+## 🔗 Live demo
+
+**https://healthcompanion.codeshare.co.in** — sign up as a **doctor** (see all patients)
+or a **patient** (your own record).
+
+| Login | Portal |
+|---|---|
+| ![Login](docs/screenshots/login.png) | ![Portal](docs/screenshots/portal.png) |
+
+## ✨ Highlights
+
+- **Reads scans & handwriting** — Gemini vision transcribes images/PDFs directly; no
+  separate OCR engine.
+- **Grounded, cited answers** — every answer comes from the patient's own documents and
+  cites the source; says *"I couldn't find that in your records"* instead of hallucinating.
+- **Strict per-patient isolation** — each patient has a dedicated vector collection *and*
+  a metadata filter on every query; a patient can never reach another's data (enforced
+  server-side, tested).
+- **Visits / episodes of care** — documents and Q&A are organized into visits, each
+  attributed to a doctor (or self), building a timeline across multiple problems and
+  doctors over time.
+- **Role-aware** — the same records read as clinical notes for a doctor and plain-language
+  guidance for a patient.
+- **Content guardrail** — non-medical uploads (marksheets, selfies) are rejected before
+  storage.
+- **Cached AI summaries** — an at-a-glance clinical summary per patient and per visit,
+  regenerated only when documents change.
+- **Production-grade delivery** — single-container build, GitHub Actions CI/CD →
+  GHCR, ArgoCD GitOps on Kubernetes, Let's Encrypt TLS, persistent storage.
+
+## 🏗️ Architecture
 
 ```
-Ingest:  file ─► extract (Gemini vision) ─► chunk ─► embed[RETRIEVAL_DOCUMENT] ─► Chroma(per-patient)
-                                                                          └─► register in SQLite
-Ask:     question ─► embed[RETRIEVAL_QUERY] ─► Chroma where{patient_id} top-k ─► Gemini answer (cited, role-aware)
+                         ┌─────────────────────── Single container ───────────────────────┐
+   Browser ── HTTPS ──►  │  FastAPI  ──serves──►  React/Vite SPA (same origin, no CORS)    │
+   (React UI)            │     │                                                            │
+                         │     ├─ Auth: JWT + scrypt, role-based access control            │
+                         │     ├─ SQLite  (patients, documents, users, visits, care team)  │
+                         │     ├─ ChromaDB (per-patient vector collections)                │
+                         │     └─ Google Gemini ── vision OCR · embeddings · generation    │
+                         └────────────────────────── /data (persistent volume) ────────────┘
+
+   INGEST:  file ─► Gemini vision (text) ─► medical guardrail ─► chunk ─► embed ─► Chroma (+ visit tag)
+   ASK:     question ─► embed ─► top-k retrieve (this patient / visit) ─► grounded, cited Gemini answer
 ```
 
-## Setup
+## 🛠️ Tech stack
+
+| Layer | Choice | Why |
+|---|---|---|
+| AI | **Google Gemini** (`google-genai`) | One provider for vision OCR + embeddings + generation |
+| Vector store | **ChromaDB** | Local, zero-ops, metadata filtering for isolation |
+| Catalog / accounts | **SQLite** | Zero-ops relational store |
+| Backend | **FastAPI** | Async, validation, dependency-injected auth |
+| Frontend | **React + Vite + TypeScript** | Typed, fast, component-based portal |
+| Auth | **JWT + scrypt** | Standard, no native deps |
+| Packaging | **Docker** (multi-stage) | One image serves API + SPA |
+| CI/CD | **GitHub Actions → GHCR** | Auto-versioned image on every push |
+| Deploy | **Kubernetes + ArgoCD** | GitOps, self-healing, TLS, persistent volume |
+
+## 🚀 Run locally
 
 ```bash
+# Backend
 pip install -r requirements.txt
-cp .env.example .env          # then put your Gemini key in .env
+cp .env.example .env            # add your Gemini key (aistudio.google.com/apikey)
+uvicorn api:app --reload        # http://localhost:8000  (API + /docs)
+
+# Frontend (separate terminal)
+cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
-Get a key at https://aistudio.google.com/apikey.
-
-## Usage (CLI)
+There's also a CLI for the core pipeline:
 
 ```bash
 python cli.py add-patient --name "Jane Doe"
-python cli.py ingest <patient_id> ./sample_prescription.jpg --type rx --date 2026-05-01
-python cli.py ask <patient_id> "Which medicines were prescribed and at what time?" --role patient
-python cli.py list-patients
-python cli.py list-docs <patient_id>
+python cli.py ingest <id> ./prescription.jpg --type rx
+python cli.py ask <id> "Which medicines do I take at night?" --role patient
 ```
 
-## Authentication & access control
+## 🔌 API (selected)
 
-The API is protected by token-based auth (JWT). Two roles:
+All `/patients*` routes require `Authorization: Bearer <jwt>`.
 
-- **Patient** — signing up creates their own linked patient record; they can only
-  access *their own* documents and ask about themselves.
-- **Doctor** — can see every patient, create patient records, upload, and ask.
+```
+POST /auth/signup · /auth/login        GET /auth/me · /doctors
+GET/POST /patients                     GET/PATCH /patients/{id}
+POST /patients/{id}/documents          PATCH /documents/{id}   (re-file into a visit)
+POST /patients/{id}/ask                GET  /patients/{id}/summary
+GET/POST /patients/{id}/visits         POST /visits/{id}/close · GET /visits/{id}/summary
+```
 
-Access is enforced server-side on every patient endpoint (a patient requesting
-another patient's data gets `403`). Passwords are hashed with `scrypt`; sessions are
-signed JWTs (set `HC_JWT_SECRET` in production — the default is a dev placeholder).
+Interactive OpenAPI docs are served at `/docs`.
 
-## Usage (API)
+## 🧪 Tests
 
 ```bash
-uvicorn api:app --reload
-# POST /auth/signup                   {"email","password","name","role":"patient"|"doctor"}  -> {token, user}
-# POST /auth/login                    {"email","password"}                                    -> {token, user}
-# GET  /auth/me                       (Bearer token)
-# GET  /patients                      doctors: all; patients: self only
-# POST /patients                      {"name": "..."}  (doctors only)
-# POST /patients/{id}/documents       multipart upload (+ doc_type, doc_date)
-# GET  /patients/{id}/documents
-# POST /patients/{id}/ask             {"question": "..."}   (answer style follows role)
+pytest        # 34 tests; all Gemini calls mocked → offline, zero API quota
 ```
 
-All `/patients*` routes require an `Authorization: Bearer <token>` header.
-Interactive docs at http://localhost:8000/docs.
+Covers the RAG pipeline, **patient isolation**, auth & access control, the medical
+guardrail, summary caching, and the visits/care-team model.
 
-## Web portal (React)
+## 📦 Project structure
 
-A React + Vite frontend lives in `frontend/`. Run the backend and the portal together:
-
-```bash
-# terminal 1 — backend
-uvicorn api:app --reload
-
-# terminal 2 — frontend
-cd frontend
-npm install
-cp .env.example .env        # VITE_API_BASE defaults to http://localhost:8000
-npm run dev                 # opens http://localhost:5173
+```
+api.py · cli.py · config.py · Dockerfile
+src/healthcompanion/   gemini_client · extract · chunk · embed · vectorstore
+                       guardrails · ingest · rag · security · auth · patients
+frontend/src/          api.ts · auth.tsx · App.tsx · components/*
+tests/                 pytest suite (mocked Gemini)
+.github/workflows/     release-and-publish.yml (CI/CD → GHCR)
 ```
 
-The portal opens to a **login / signup** screen. Sign up as a **patient** (you get
-your own record) or a **doctor** (you see all patients). Then drag-and-drop documents
-to ingest them and chat with the records — answers show their source citations, and a
-patient can only ever reach their own data. Sessions persist across reloads; sign out
-from the user card in the sidebar.
+## 🚢 Deployment
 
-## Roles
+Every push to `main` triggers GitHub Actions to **version, build, and publish** the
+Docker image to GHCR and cut a GitHub Release. The app runs on a Kubernetes cluster via
+**ArgoCD GitOps** (auto-sync + self-heal), exposed over HTTPS with an automatic Let's
+Encrypt certificate and a persistent volume for patient data.
 
-`ask(..., role=...)` switches the system prompt: **doctor** → clinical detail and
-terminology; **patient** → plain-language explanations. Answers always cite the source
-document and date, and say *"not found in your records"* when the answer isn't present.
+## 🔒 Security & compliance
 
-## Tests
+- Secrets (Gemini key, JWT secret) are **never committed** — `.env` is git-ignored;
+  production uses Kubernetes Secrets.
+- Passwords hashed with `scrypt`; sessions are signed JWTs.
+- Patient isolation is **defense-in-depth** (per-patient collection + metadata filter).
+- Intended for **synthetic/de-identified data**; production PHI needs Vertex AI under a
+  BAA, encryption at rest, and audit logging.
 
-```bash
-pytest
-```
+---
 
-Tests mock all Gemini calls, so they run offline without consuming API quota.
-
-## ⚠️ Security & compliance
-
-- The Gemini API key is read from `.env`, which is **git-ignored**. Never commit it.
-- This prototype targets the **Gemini Developer API** and is intended for
-  **synthetic / de-identified** data only.
-- **Real patient PHI in production requires Vertex AI under a BAA**
-  (`genai.Client(vertexai=True, project=..., location=...)`, same SDK) plus auth,
-  access control, encryption, and audit logging — none of which are built here.
-- Patient isolation is defense-in-depth: a **dedicated Chroma collection per patient**
-  *and* a `patient_id` metadata filter on every query.
+<div align="center">
+Built as a full-stack + applied-AI portfolio project. Feedback welcome.
+</div>

@@ -16,3 +16,8 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Local-only technical documentation (not published to GitHub)
+docs/*.md
+docs/*.pdf
+scripts/build_doc.py
