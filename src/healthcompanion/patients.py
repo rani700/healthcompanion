@@ -268,10 +268,19 @@ def add_document(
     return doc_id
 
 
-def list_documents(patient_id: str) -> list[dict[str, Any]]:
+def list_documents(
+    patient_id: str, visit_id: str | None = None
+) -> list[dict[str, Any]]:
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM documents WHERE patient_id = ? ORDER BY ingested_at",
-            (patient_id,),
-        ).fetchall()
+        if visit_id:
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE patient_id = ? AND visit_id = ? "
+                "ORDER BY ingested_at",
+                (patient_id, visit_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE patient_id = ? ORDER BY ingested_at",
+                (patient_id,),
+            ).fetchall()
     return [dict(r) for r in rows]

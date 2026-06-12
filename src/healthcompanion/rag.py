@@ -56,9 +56,11 @@ def ask(
     question: str,
     role: str = "patient",
     top_k: int = config.TOP_K,
+    visit_id: str | None = None,
 ) -> dict[str, Any]:
     """Answer a question about one patient's records.
 
+    Pass ``visit_id`` to restrict the answer to a single visit's documents.
     Returns {answer, sources, used_chunks}. Raises if the patient is unknown.
     """
     if patients.get_patient(patient_id) is None:
@@ -67,7 +69,7 @@ def ask(
     role = role if role in _ROLE_GUIDANCE else "patient"
 
     q_vec = embed_query(question)
-    hits = vectorstore.query(patient_id, q_vec, top_k=top_k)
+    hits = vectorstore.query(patient_id, q_vec, top_k=top_k, visit_id=visit_id)
 
     if not hits:
         return {
@@ -150,6 +152,29 @@ def summarize_patient(patient_id: str, refresh: bool = False) -> dict[str, Any]:
     summary = (response.text or "").strip()
     patients.set_cached_summary(patient_id, summary, sig)
     return {"summary": summary, "has_records": True, "cached": False}
+
+
+def summarize_visit(patient_id: str, visit_id: str) -> dict[str, Any]:
+    """Summarize just one visit's documents (uncached, generated on demand)."""
+    chunks = vectorstore.get_all_chunks(patient_id, visit_id=visit_id)
+    if not chunks:
+        return {"summary": "", "has_records": False}
+
+    context = _build_context(chunks)
+    client = get_client()
+    from google.genai import types
+
+    response = call_with_retry(
+        lambda: client.models.generate_content(
+            model=config.MODEL_GEN,
+            contents="Summarize this visit's records.",
+            config=types.GenerateContentConfig(
+                system_instruction=f"{_SUMMARY_SYSTEM}\n\nVisit record excerpts:\n{context}",
+                temperature=0.2,
+            ),
+        )
+    )
+    return {"summary": (response.text or "").strip(), "has_records": True}
 
 
 def _dedupe_sources(hits: list[dict[str, Any]]) -> list[dict[str, str]]:

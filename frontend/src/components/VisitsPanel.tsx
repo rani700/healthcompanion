@@ -1,10 +1,14 @@
-import { useState } from "react";
-import type { CareTeamMember, Visit } from "../api";
+import { useEffect, useState } from "react";
+import { api, type CareTeamMember, type Doctor, type Role, type Visit } from "../api";
 
 type Props = {
   visits: Visit[];
   careTeam: CareTeamMember[];
-  onCreate: (title: string) => Promise<void>;
+  role: Role;
+  doctors: Doctor[];
+  selectedVisitId: string | null;
+  onSelectVisit: (id: string | null) => void;
+  onCreate: (title: string, doctorId?: string) => Promise<void>;
   onClose: (visitId: string) => Promise<void>;
 };
 
@@ -16,11 +20,36 @@ function fmtDate(iso: string): string {
 export default function VisitsPanel({
   visits,
   careTeam,
+  role,
+  doctors,
+  selectedVisitId,
+  onSelectVisit,
   onCreate,
   onClose,
 }: Props) {
   const [title, setTitle] = useState("");
+  const [doctorId, setDoctorId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState<string>("");
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  // Fetch the per-visit summary when a visit is selected.
+  useEffect(() => {
+    if (!selectedVisitId) {
+      setSummary("");
+      return;
+    }
+    let live = true;
+    setSummaryLoading(true);
+    api
+      .visitSummary(selectedVisitId)
+      .then((r) => live && setSummary(r.has_records ? r.summary : "No documents in this visit yet."))
+      .catch(() => live && setSummary(""))
+      .finally(() => live && setSummaryLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [selectedVisitId]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -28,8 +57,9 @@ export default function VisitsPanel({
     if (!t) return;
     setBusy(true);
     try {
-      await onCreate(t);
+      await onCreate(t, doctorId || undefined);
       setTitle("");
+      setDoctorId("");
     } finally {
       setBusy(false);
     }
@@ -58,35 +88,70 @@ export default function VisitsPanel({
           placeholder="New visit — reason / health issue (e.g. fever & cough)"
           aria-label="Reason for visit"
         />
+        {role === "patient" && (
+          <select
+            value={doctorId}
+            onChange={(e) => setDoctorId(e.target.value)}
+            aria-label="Doctor"
+            title="Choose a doctor or self-record"
+          >
+            <option value="">Self-recorded</option>
+            {doctors.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        )}
         <button type="submit" disabled={busy || !title.trim()}>
-          {busy ? "…" : "Start visit"}
+          {busy ? "…" : role === "patient" && doctorId ? "Request visit" : "Start visit"}
         </button>
       </form>
 
       <ul className="visit-list">
-        {visits.map((v) => (
-          <li key={v.id} className="visit">
-            <span className={`visit-badge ${v.status}`}>{v.status}</span>
-            <div className="visit-body">
-              <span className="visit-title">{v.title}</span>
-              <span className="visit-meta">
-                {v.doctor_name} · {fmtDate(v.started_at)} · {v.n_docs} doc
-                {v.n_docs === 1 ? "" : "s"}
-              </span>
-            </div>
-            {v.status === "open" && (
-              <button className="visit-close" onClick={() => onClose(v.id)}>
-                Close
+        {visits.map((v) => {
+          const active = v.id === selectedVisitId;
+          return (
+            <li key={v.id} className={`visit ${active ? "active" : ""}`}>
+              <button
+                className="visit-main"
+                onClick={() => onSelectVisit(active ? null : v.id)}
+                title={active ? "Click to view all records" : "Click to focus this visit"}
+              >
+                <span className={`visit-badge ${v.status}`}>{v.status}</span>
+                <span className="visit-body">
+                  <span className="visit-title">{v.title}</span>
+                  <span className="visit-meta">
+                    {v.doctor_name} · {fmtDate(v.started_at)} · {v.n_docs} doc
+                    {v.n_docs === 1 ? "" : "s"}
+                  </span>
+                </span>
               </button>
-            )}
-          </li>
-        ))}
+              {v.status === "open" && (
+                <button className="visit-close" onClick={() => onClose(v.id)}>
+                  Close
+                </button>
+              )}
+            </li>
+          );
+        })}
         {visits.length === 0 && (
           <li className="empty-hint">
             No visits yet — start one to group this episode's documents.
           </li>
         )}
       </ul>
+
+      {selectedVisitId && (
+        <div className="visit-summary">
+          <span className="visit-summary-label">Visit summary</span>
+          {summaryLoading ? (
+            <span className="visit-summary-loading">Generating…</span>
+          ) : (
+            <p>{summary}</p>
+          )}
+        </div>
+      )}
     </section>
   );
 }

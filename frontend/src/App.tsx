@@ -3,6 +3,7 @@ import {
   api,
   AuthExpired,
   type CareTeamMember,
+  type Doctor,
   type Document,
   type NewPatient,
   type Patient,
@@ -27,6 +28,8 @@ export default function App() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [careTeam, setCareTeam] = useState<CareTeamMember[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,9 +79,16 @@ export default function App() {
   useEffect(() => {
     if (!selectedId) return;
     setMessages([]);
+    setSelectedVisitId(null); // reset visit focus when switching patients
     loadDocuments(selectedId);
     loadVisits(selectedId);
   }, [selectedId, loadDocuments, loadVisits]);
+
+  // Doctor directory (patients use it to request a doctor).
+  useEffect(() => {
+    if (!user) return;
+    api.listDoctors().then(setDoctors).catch(() => setDoctors([]));
+  }, [user]);
 
   // --- actions --------------------------------------------------------------
   async function createPatient(payload: NewPatient) {
@@ -112,10 +122,10 @@ export default function App() {
     }
   }
 
-  async function createVisit(title: string) {
+  async function createVisit(title: string, doctorId?: string) {
     if (!selectedId) return;
     try {
-      await api.createVisit(selectedId, title);
+      await api.createVisit(selectedId, title, doctorId);
       loadVisits(selectedId);
     } catch (e) {
       handle(e);
@@ -143,7 +153,7 @@ export default function App() {
     ]);
 
     api
-      .ask(selectedId, question)
+      .ask(selectedId, question, selectedVisitId ?? undefined)
       .then((res) =>
         setMessages((m) =>
           m.map((msg) =>
@@ -227,13 +237,34 @@ export default function App() {
             <VisitsPanel
               visits={visits}
               careTeam={careTeam}
+              role={user.role}
+              doctors={doctors}
+              selectedVisitId={selectedVisitId}
+              onSelectVisit={setSelectedVisitId}
               onCreate={createVisit}
               onClose={closeVisit}
             />
 
+            {selectedVisitId && (
+              <div className="scope-banner">
+                Focused on visit:{" "}
+                <strong>
+                  {visits.find((v) => v.id === selectedVisitId)?.title}
+                </strong>{" "}
+                — records &amp; questions are limited to this visit.
+                <button onClick={() => setSelectedVisitId(null)}>
+                  View all records
+                </button>
+              </div>
+            )}
+
             <div className="workspace">
               <DocumentsPanel
-                documents={documents}
+                documents={
+                  selectedVisitId
+                    ? documents.filter((d) => d.visit_id === selectedVisitId)
+                    : documents
+                }
                 visits={visits}
                 busy={uploading}
                 onUpload={upload}
@@ -259,16 +290,30 @@ export default function App() {
                 ✚
               </button>
             ) : (
-              <span className="welcome-mark" aria-hidden>
+              <button
+                className="welcome-mark clickable"
+                title="Open my record"
+                onClick={() =>
+                  user.patient_id && setSelectedId(user.patient_id)
+                }
+              >
                 ✚
-              </span>
+              </button>
             )}
             <h1>{user.role === "doctor" ? "Select a patient" : "Welcome"}</h1>
             <p>
               {user.role === "doctor"
                 ? "Choose someone from the roster, or add a new patient, to view their records and ask grounded questions."
-                : "Your record is loading. Upload a document to get started."}
+                : "Open your record to add documents, start a visit, and ask questions."}
             </p>
+            {user.role === "patient" && user.patient_id && (
+              <button
+                className="welcome-cta"
+                onClick={() => setSelectedId(user.patient_id!)}
+              >
+                Open my record
+              </button>
+            )}
             {user.role === "doctor" && (
               <AddPatientForm onCreate={createPatient} />
             )}

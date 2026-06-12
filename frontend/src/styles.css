@@ -656,11 +656,32 @@ button:disabled {
 .visit {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 9px 12px;
+  gap: 8px;
+  padding: 4px 8px 4px 4px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-raised);
+  transition: border-color 0.16s ease;
+}
+.visit.active {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px var(--green-wash);
+}
+.visit-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+.visit-main:hover {
+  background: var(--paper);
 }
 .visit-badge {
   flex: none;
@@ -712,6 +733,88 @@ button:disabled {
   width: 100%;
   margin-top: 8px;
   font-size: 13px;
+}
+.visit-create select {
+  max-width: 160px;
+}
+
+/* per-visit summary (inside visits panel) */
+.visit-summary {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--green-wash);
+  border: 1px solid #cfe0d4;
+  border-radius: 10px;
+}
+.visit-summary-label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--green-deep);
+  margin-bottom: 6px;
+}
+.visit-summary p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  max-height: 130px;
+  overflow-y: auto;
+}
+.visit-summary-loading {
+  font-size: 13px;
+  color: var(--ink-mute);
+  font-style: italic;
+}
+
+/* scope banner when a visit is focused */
+.scope-banner {
+  margin: 14px 36px 0;
+  padding: 10px 16px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--ink-mute);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.scope-banner strong {
+  color: var(--green-deep);
+}
+.scope-banner button {
+  margin-left: auto;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--green-deep);
+  font-weight: 600;
+  font-size: 12.5px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.scope-banner button:hover {
+  background: var(--green-wash);
+}
+
+/* welcome CTA (patient: open my record) */
+.welcome-cta {
+  margin-top: 20px;
+  border: 0;
+  background: var(--green);
+  color: #f4f1e8;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 10px 22px;
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+.welcome-cta:hover {
+  background: var(--green-deep);
 }
 
 /* add-patient sidebar dob row */

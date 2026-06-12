@@ -38,6 +38,7 @@ from healthcompanion.guardrails import NotMedicalDocument
 from healthcompanion.ingest import ingest_document
 from healthcompanion.rag import ask as rag_ask
 from healthcompanion.rag import summarize_patient as rag_summarize
+from healthcompanion.rag import summarize_visit as rag_summarize_visit
 from healthcompanion.security import create_token, decode_token
 
 app = FastAPI(title="HealthCompanion", version="0.2.0")
@@ -61,6 +62,7 @@ class SignupBody(BaseModel):
     dob: str | None = None
     sex: str | None = None
     phone: str | None = None
+    address: str | None = None
 
 
 class LoginBody(BaseModel):
@@ -86,10 +88,12 @@ class UpdatePatient(BaseModel):
 
 class AskRequest(BaseModel):
     question: str
+    visit_id: str | None = None
 
 
 class CreateVisit(BaseModel):
     title: str
+    doctor_id: str | None = None  # a patient may request a specific doctor
 
 
 def _link_if_doctor(user: dict, patient_id: str) -> None:
@@ -137,7 +141,7 @@ def signup(body: SignupBody):
     try:
         user = auth.signup(
             body.email, body.password, body.name, body.role,
-            dob=body.dob, sex=body.sex, phone=body.phone,
+            dob=body.dob, sex=body.sex, phone=body.phone, address=body.address,
         )
     except auth.AuthError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -156,6 +160,12 @@ def login(body: LoginBody):
 @app.get("/auth/me")
 def me(user: dict = Depends(current_user)):
     return auth._public(user)
+
+
+@app.get("/doctors")
+def list_doctors(user: dict = Depends(current_user)):
+    """Directory of doctors (for patients to find/request a doctor)."""
+    return auth.list_doctors()
 
 
 # --- Patient routes ----------------------------------------------------------
@@ -232,6 +242,13 @@ def create_visit(
     if user["role"] == "doctor":
         doctor_id, doctor_name = user["id"], user["name"]
         patients.link_doctor_patient(user["id"], patient_id)
+    elif body.doctor_id:
+        # Patient requested a specific doctor.
+        doc = auth.get_user(body.doctor_id)
+        if doc is None or doc["role"] != "doctor":
+            raise HTTPException(status_code=400, detail="Unknown doctor.")
+        doctor_id, doctor_name = doc["id"], doc["name"]
+        patients.link_doctor_patient(doctor_id, patient_id)
     else:
         doctor_id, doctor_name = None, "Self-recorded"
     return patients.create_visit(patient_id, body.title.strip(), doctor_id, doctor_name)
@@ -246,10 +263,21 @@ def close_visit(visit_id: str, user: dict = Depends(current_user)):
     return patients.set_visit_status(visit_id, "closed")
 
 
+@app.get("/visits/{visit_id}/summary")
+def visit_summary(visit_id: str, user: dict = Depends(current_user)):
+    visit = patients.get_visit(visit_id)
+    if visit is None:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    _authorize_patient(user, visit["patient_id"])
+    return rag_summarize_visit(visit["patient_id"], visit_id)
+
+
 @app.get("/patients/{patient_id}/documents")
-def list_documents(patient_id: str, user: dict = Depends(current_user)):
+def list_documents(
+    patient_id: str, visit_id: str | None = None, user: dict = Depends(current_user)
+):
     _authorize_patient(user, patient_id)
-    return patients.list_documents(patient_id)
+    return patients.list_documents(patient_id, visit_id=visit_id)
 
 
 @app.post("/patients/{patient_id}/documents")
@@ -294,8 +322,8 @@ def upload_document(
 def ask(patient_id: str, body: AskRequest, user: dict = Depends(current_user)):
     _authorize_patient(user, patient_id)
     _link_if_doctor(user, patient_id)
-    # Answer style follows the caller's role.
-    return rag_ask(patient_id, body.question, role=user["role"])
+    # Answer style follows the caller's role; optionally scoped to one visit.
+    return rag_ask(patient_id, body.question, role=user["role"], visit_id=body.visit_id)
 
 
 # --- Static frontend (production single-container) ---------------------------

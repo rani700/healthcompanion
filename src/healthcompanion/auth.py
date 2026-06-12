@@ -63,6 +63,15 @@ def get_user(user_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def list_doctors() -> list[dict[str, Any]]:
+    """Public directory of doctors (id + name only)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, name FROM users WHERE role = 'doctor' ORDER BY name"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def signup(
     email: str,
     password: str,
@@ -71,6 +80,7 @@ def signup(
     dob: str | None = None,
     sex: str | None = None,
     phone: str | None = None,
+    address: str | None = None,
 ) -> dict[str, Any]:
     """Create a user. For ``patient`` role, also create a linked patient record.
 
@@ -90,7 +100,7 @@ def signup(
 
     # A patient user gets their own patient record to own.
     patient_id = (
-        patients.create_patient(name, dob=dob, sex=sex, phone=phone)
+        patients.create_patient(name, dob=dob, sex=sex, phone=phone, address=address)
         if role == "patient"
         else None
     )

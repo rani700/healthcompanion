@@ -10,6 +10,8 @@ export default function Login() {
   const [role, setRole] = useState<Role>("patient");
   const [name, setName] = useState("");
   const [dob, setDob] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +29,15 @@ export default function Login() {
       if (mode === "login") {
         await login(email, password);
       } else {
-        await signup(email, password, name, role, role === "patient" ? { dob } : {});
+        await signup(
+          email,
+          password,
+          name,
+          role,
+          role === "patient"
+            ? { dob, phone: phone || undefined, address: address || undefined }
+            : {},
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -106,15 +116,33 @@ export default function Login() {
                 />
               </label>
               {role === "patient" && (
-                <label className="field">
-                  <span>Date of birth</span>
-                  <input
-                    type="date"
-                    value={dob}
-                    onChange={(e) => setDob(e.target.value)}
-                    required
-                  />
-                </label>
+                <>
+                  <label className="field">
+                    <span>Date of birth</span>
+                    <input
+                      type="date"
+                      value={dob}
+                      onChange={(e) => setDob(e.target.value)}
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Phone (optional)</span>
+                    <input
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="e.g. 080-555-1144"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Address (optional)</span>
+                    <input
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      placeholder="e.g. 12 MG Road"
+                    />
+                  </label>
+                </>
               )}
             </>
           )}

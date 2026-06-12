@@ -43,6 +43,7 @@ def add_chunks(
     doc_type: str,
     doc_date: str | None,
     filename: str,
+    visit_id: str | None = None,
 ) -> int:
     """Store a document's chunks (with embeddings + metadata) for a patient."""
     col = _collection(patient_id)
@@ -55,6 +56,7 @@ def add_chunks(
             "doc_date": doc_date or "",
             "filename": filename,
             "chunk_index": i,
+            "visit_id": visit_id or "",
         }
         for i in range(len(chunks))
     ]
@@ -62,12 +64,16 @@ def add_chunks(
     return len(chunks)
 
 
-def get_all_chunks(patient_id: str, limit: int = 60):
-    """Return up to ``limit`` stored chunks for a patient (for summarization)."""
+def get_all_chunks(patient_id: str, limit: int = 60, visit_id: str | None = None):
+    """Return up to ``limit`` stored chunks for a patient (for summarization).
+
+    Pass ``visit_id`` to restrict to a single visit's documents.
+    """
     col = _collection(patient_id)
     if col.count() == 0:
         return []
-    res = col.get(include=["documents", "metadatas"], limit=limit)
+    where = {"visit_id": visit_id} if visit_id else None
+    res = col.get(include=["documents", "metadatas"], limit=limit, where=where)
     docs = res.get("documents") or []
     metas = res.get("metadatas") or []
     out = [
@@ -84,20 +90,26 @@ def get_all_chunks(patient_id: str, limit: int = 60):
     return out
 
 
-def query(patient_id: str, query_embedding: list[float], top_k: int = config.TOP_K):
+def query(
+    patient_id: str,
+    query_embedding: list[float],
+    top_k: int = config.TOP_K,
+    visit_id: str | None = None,
+):
     """Return the top-k most relevant chunks for a patient.
 
-    Output: list of dicts with ``text``, ``doc_type``, ``doc_date``, ``filename``,
-    and ``distance``.
+    Pass ``visit_id`` to restrict retrieval to one visit's documents. Output: list
+    of dicts with ``text``, ``doc_type``, ``doc_date``, ``filename``, ``distance``.
     """
     col = _collection(patient_id)
     n = min(top_k, col.count())
     if n == 0:
         return []
+    where = {"visit_id": visit_id} if visit_id else {"patient_id": patient_id}
     res = col.query(
         query_embeddings=[query_embedding],
         n_results=n,
-        where={"patient_id": patient_id},  # redundant with per-patient collection, by design
+        where=where,
         include=["documents", "metadatas", "distances"],
     )
     docs = res["documents"][0]

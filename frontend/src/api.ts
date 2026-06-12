@@ -78,6 +78,8 @@ export type CareTeamMember = {
   last_seen: string;
 };
 
+export type Doctor = { id: string; name: string };
+
 export type Source = {
   filename: string;
   doc_type: string;
@@ -166,8 +168,9 @@ export const api = {
       `/patients/${id}/summary?refresh=${refresh}`,
     );
   },
-  listDocuments(patientId: string) {
-    return request<Document[]>(`/patients/${patientId}/documents`);
+  listDocuments(patientId: string, visitId?: string) {
+    const q = visitId ? `?visit_id=${visitId}` : "";
+    return request<Document[]>(`/patients/${patientId}/documents${q}`);
   },
   uploadDocument(
     patientId: string,
@@ -191,22 +194,28 @@ export const api = {
   listVisits(patientId: string) {
     return request<Visit[]>(`/patients/${patientId}/visits`);
   },
-  createVisit(patientId: string, title: string) {
+  createVisit(patientId: string, title: string, doctorId?: string) {
     return request<Visit>(
       `/patients/${patientId}/visits`,
-      jsonBody("POST", { title }),
+      jsonBody("POST", { title, doctor_id: doctorId ?? null }),
     );
   },
   closeVisit(visitId: string) {
     return request<Visit>(`/visits/${visitId}/close`, { method: "POST" });
   },
+  visitSummary(visitId: string) {
+    return request<PatientSummary>(`/visits/${visitId}/summary`);
+  },
   careTeam(patientId: string) {
     return request<CareTeamMember[]>(`/patients/${patientId}/care-team`);
   },
-  ask(patientId: string, question: string) {
+  listDoctors() {
+    return request<Doctor[]>("/doctors");
+  },
+  ask(patientId: string, question: string, visitId?: string) {
     return request<AskResult>(
       `/patients/${patientId}/ask`,
-      jsonBody("POST", { question }),
+      jsonBody("POST", { question, visit_id: visitId ?? null }),
     );
   },
 };

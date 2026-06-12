@@ -73,6 +73,33 @@ def test_visit_lifecycle_and_attribution(client):
     assert names == {"Dr A", "Dr B"}
 
 
+def test_doctor_directory(client):
+    _doctor(client, "a@x.com", "Dr A")
+    _doctor(client, "b@x.com", "Dr B")
+    # A patient can see the directory.
+    r = client.post("/auth/signup", json={"email": "p@x.com", "password": "secret123",
+                                          "name": "P", "role": "patient", "dob": "1990-01-01"})
+    tok = r.json()["token"]
+    docs = client.get("/doctors", headers=H(tok)).json()
+    assert {d["name"] for d in docs} == {"Dr A", "Dr B"}
+
+
+def test_patient_requests_specific_doctor(client):
+    _doctor(client, "a@x.com", "Dr A")
+    r = client.post("/auth/signup", json={"email": "p@x.com", "password": "secret123",
+                                          "name": "P", "role": "patient", "dob": "1990-01-01"})
+    ptok = r.json()["token"]
+    pid = r.json()["user"]["patient_id"]
+    doc_id = client.get("/doctors", headers=H(ptok)).json()[0]["id"]
+
+    v = client.post(f"/patients/{pid}/visits",
+                    json={"title": "Checkup", "doctor_id": doc_id},
+                    headers=H(ptok)).json()
+    assert v["doctor_name"] == "Dr A" and v["doctor_id"] == doc_id
+    team = client.get(f"/patients/{pid}/care-team", headers=H(ptok)).json()
+    assert team[0]["doctor_name"] == "Dr A"
+
+
 def test_patient_self_recorded_visit(client):
     # A patient records their own visit -> attributed to "Self-recorded"
     r = client.post("/auth/signup", json={"email": "self@x.com", "password": "secret123",

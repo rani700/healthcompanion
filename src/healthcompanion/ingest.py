@@ -52,6 +52,7 @@ def ingest_document(
         doc_type=doc_type,
         doc_date=doc_date,
         filename=filename,
+        visit_id=visit_id,
     )
     # Register in the catalog with the same doc_id used for the vectors.
     patients.add_document(
