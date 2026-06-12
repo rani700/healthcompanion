@@ -3,6 +3,7 @@ import { api, type Demographics, type Patient } from "../api";
 
 type Props = {
   patient: Patient;
+  refreshSignal?: number;
   onSaved: (p: Patient) => void;
 };
 
@@ -17,13 +18,17 @@ function ageFromDob(dob: string | null): string | null {
   return age >= 0 && age < 150 ? `${age}` : null;
 }
 
-export default function PatientSummary({ patient, onSaved }: Props) {
+export default function PatientSummary({
+  patient,
+  refreshSignal,
+  onSaved,
+}: Props) {
   const [summary, setSummary] = useState<string>("");
   const [hasRecords, setHasRecords] = useState(true);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
 
-  // Fetch the AI summary whenever the patient changes.
+  // Fetch the (cached) summary when the patient changes or records change.
   useEffect(() => {
     let live = true;
     setLoading(true);
@@ -39,7 +44,20 @@ export default function PatientSummary({ patient, onSaved }: Props) {
     return () => {
       live = false;
     };
-  }, [patient.id]);
+  }, [patient.id, refreshSignal]);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const r = await api.getSummary(patient.id, true);
+      setSummary(r.summary);
+      setHasRecords(r.has_records);
+    } catch {
+      /* ignore */
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const age = ageFromDob(patient.dob);
 
@@ -78,7 +96,17 @@ export default function PatientSummary({ patient, onSaved }: Props) {
       </div>
 
       <div className="summary-ai">
-        <h2>Summary</h2>
+        <h2>
+          Summary
+          <button
+            className="sd-edit"
+            onClick={refresh}
+            disabled={loading || !hasRecords}
+            title="Regenerate summary"
+          >
+            Refresh
+          </button>
+        </h2>
         {loading ? (
           <div className="summary-loading">
             <span className="typing">

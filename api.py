@@ -185,10 +185,12 @@ def update_patient(
 
 
 @app.get("/patients/{patient_id}/summary")
-def patient_summary(patient_id: str, user: dict = Depends(current_user)):
+def patient_summary(
+    patient_id: str, refresh: bool = False, user: dict = Depends(current_user)
+):
     _authorize_patient(user, patient_id)
     _link_if_doctor(user, patient_id)
-    return rag_summarize(patient_id)
+    return rag_summarize(patient_id, refresh=refresh)
 
 
 @app.get("/patients/{patient_id}/documents")

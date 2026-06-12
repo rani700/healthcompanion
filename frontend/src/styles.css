@@ -903,15 +903,20 @@ button:disabled {
   margin: 0;
 }
 .welcome-add {
+  margin: 24px auto 0;
+  max-width: 460px;
+  text-align: left;
+}
+.welcome-add-main {
   display: flex;
   gap: 8px;
-  margin-top: 24px;
   justify-content: center;
 }
-.welcome-add input {
-  min-width: 220px;
+.welcome-add-main input {
+  flex: 1;
+  min-width: 0;
 }
-.welcome-add button {
+.welcome-add-main button {
   border: 0;
   background: var(--green);
   color: #f4f1e8;
@@ -921,13 +926,54 @@ button:disabled {
   border-radius: 10px;
   cursor: pointer;
   transition: background 0.18s ease;
+  white-space: nowrap;
 }
-.welcome-add button:hover {
+.welcome-add-main button:hover {
   background: var(--green-deep);
 }
-.welcome-add button:disabled {
+.welcome-add-main button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+.welcome-add-toggle {
+  display: block;
+  margin: 10px auto 0;
+  border: 0;
+  background: transparent;
+  color: var(--green-deep);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.welcome-add-toggle:hover {
+  text-decoration: underline;
+}
+.welcome-add-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.welcome-add-details label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.welcome-add-details label.wide {
+  grid-column: 1 / -1;
+}
+.welcome-add-details input,
+.welcome-add-details select {
+  font-size: 13.5px;
+  padding: 7px 10px;
 }
 
 /* ---------- Scrollbars ---------- */
@@ -1207,12 +1253,11 @@ button:disabled {
     border-bottom: 1px solid var(--line);
     padding-bottom: 16px;
   }
-  .welcome-add {
+  .welcome-add-main {
     flex-direction: column;
-    align-items: stretch;
   }
-  .welcome-add input {
-    min-width: 0;
+  .welcome-add-details {
+    grid-template-columns: 1fr;
   }
   .auth-screen {
     grid-template-columns: 1fr;

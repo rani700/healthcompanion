@@ -20,7 +20,7 @@ def client(tmp_path, monkeypatch):
     # Don't call Gemini for summaries in tests.
     monkeypatch.setattr(
         api, "rag_summarize",
-        lambda pid: {"summary": "stub summary", "has_records": True},
+        lambda pid, refresh=False: {"summary": "stub summary", "has_records": True},
     )
     return api.app
 
@@ -71,6 +71,49 @@ def test_scope_mine_vs_all(client):
 
     assert len(all_ids) >= 2
     assert mine_ids == {mine_id}  # only the one the doctor created
+
+
+def test_summary_caching(monkeypatch, tmp_path):
+    """Summary is cached until the document set changes."""
+    import config
+    from healthcompanion import patients, rag, vectorstore
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "p.db")
+
+    calls = {"n": 0}
+
+    class _Resp:
+        text = "GENERATED SUMMARY"
+
+    class _Models:
+        def generate_content(self, *a, **k):
+            calls["n"] += 1
+            return _Resp()
+
+    class _Client:
+        models = _Models()
+
+    monkeypatch.setattr(rag, "get_client", lambda: _Client())
+    monkeypatch.setattr(
+        vectorstore, "get_all_chunks",
+        lambda pid, limit=60: [{"text": "x", "doc_type": "rx", "doc_date": "", "filename": "f"}],
+    )
+
+    pid = patients.create_patient("Cache Pt")
+    # Pretend a document exists so the fingerprint is stable.
+    patients.add_document(pid, "f.png", "rx", "2026-01-01", 1)
+
+    r1 = rag.summarize_patient(pid)
+    r2 = rag.summarize_patient(pid)  # served from cache
+    assert r1["summary"] == "GENERATED SUMMARY"
+    assert r2["cached"] is True
+    assert calls["n"] == 1  # model called once, not twice
+
+    # A new document changes the fingerprint -> regenerate.
+    patients.add_document(pid, "g.png", "lab", "2026-02-01", 1)
+    rag.summarize_patient(pid)
+    assert calls["n"] == 2
 
 
 def test_opening_summary_links_patient_to_doctor(client):

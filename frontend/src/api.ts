@@ -42,6 +42,8 @@ export type Demographics = {
   address?: string;
 };
 
+export type NewPatient = { name: string } & Demographics;
+
 export type PatientSummary = { summary: string; has_records: boolean };
 
 export type Scope = "mine" | "all";
@@ -127,14 +129,16 @@ export const api = {
   listPatients(scope: Scope = "all") {
     return request<Patient[]>(`/patients?scope=${scope}`);
   },
-  createPatient(name: string) {
-    return request<Patient>("/patients", jsonBody("POST", { name }));
+  createPatient(payload: NewPatient) {
+    return request<Patient>("/patients", jsonBody("POST", payload));
   },
   updatePatient(id: string, fields: Demographics) {
     return request<Patient>(`/patients/${id}`, jsonBody("PATCH", fields));
   },
-  getSummary(id: string) {
-    return request<PatientSummary>(`/patients/${id}/summary`);
+  getSummary(id: string, refresh = false) {
+    return request<PatientSummary>(
+      `/patients/${id}/summary?refresh=${refresh}`,
+    );
   },
   listDocuments(patientId: string) {
     return request<Document[]>(`/patients/${patientId}/documents`);

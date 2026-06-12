@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Patient, Scope, User } from "../api";
+import type { NewPatient, Patient, Scope, User } from "../api";
 
 type Props = {
   user: User;
@@ -8,7 +8,7 @@ type Props = {
   scope: Scope;
   onScopeChange: (s: Scope) => void;
   onSelect: (id: string) => void;
-  onCreate: (name: string) => Promise<void>;
+  onCreate: (payload: NewPatient) => Promise<void>;
   onLogout: () => void;
   onHome: () => void;
 };
@@ -51,7 +51,7 @@ export default function Sidebar({
     if (!trimmed) return;
     setAdding(true);
     try {
-      await onCreate(trimmed);
+      await onCreate({ name: trimmed });
       setName("");
     } finally {
       setAdding(false);

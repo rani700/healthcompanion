@@ -114,14 +114,24 @@ treatment. If the records are sparse, say what little is known. Keep it under
 180 words."""
 
 
-def summarize_patient(patient_id: str) -> dict[str, Any]:
-    """Generate a short clinical summary from a patient's stored records."""
+def summarize_patient(patient_id: str, refresh: bool = False) -> dict[str, Any]:
+    """Generate a short clinical summary from a patient's stored records.
+
+    Cached and only regenerated when the patient's document set changes (or when
+    ``refresh`` forces it), so opening a patient doesn't re-run the model.
+    """
     if patients.get_patient(patient_id) is None:
         raise ValueError(f"Unknown patient: {patient_id}")
 
+    sig = patients.docs_fingerprint(patient_id)
+    if not refresh:
+        cached = patients.get_cached_summary(patient_id)
+        if cached and cached[0] and cached[1] == sig:
+            return {"summary": cached[0], "has_records": True, "cached": True}
+
     chunks = vectorstore.get_all_chunks(patient_id)
     if not chunks:
-        return {"summary": "", "has_records": False}
+        return {"summary": "", "has_records": False, "cached": False}
 
     context = _build_context(chunks)
     client = get_client()
@@ -137,7 +147,9 @@ def summarize_patient(patient_id: str) -> dict[str, Any]:
             ),
         )
     )
-    return {"summary": (response.text or "").strip(), "has_records": True}
+    summary = (response.text or "").strip()
+    patients.set_cached_summary(patient_id, summary, sig)
+    return {"summary": summary, "has_records": True, "cached": False}
 
 
 def _dedupe_sources(hits: list[dict[str, Any]]) -> list[dict[str, str]]:

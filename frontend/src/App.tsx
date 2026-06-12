@@ -1,11 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, AuthExpired, type Document, type Patient, type Scope } from "./api";
+import { useCallback, useEffect, useState } from "react";
+import {
+  api,
+  AuthExpired,
+  type Document,
+  type NewPatient,
+  type Patient,
+  type Scope,
+} from "./api";
 import { useAuth } from "./auth";
 import Login from "./components/Login";
 import Sidebar from "./components/Sidebar";
 import DocumentsPanel from "./components/DocumentsPanel";
 import AskPanel, { type Message } from "./components/AskPanel";
 import PatientSummary from "./components/PatientSummary";
+import AddPatientForm from "./components/AddPatientForm";
 
 export default function App() {
   const { user, ready, logout } = useAuth();
@@ -17,8 +25,7 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [welcomeName, setWelcomeName] = useState("");
-  const welcomeInputRef = useRef<HTMLInputElement>(null);
+  const [docVersion, setDocVersion] = useState(0); // bumps when docs change
 
   // Centralized error handling — drop the session on auth failures.
   const handle = useCallback(
@@ -60,9 +67,9 @@ export default function App() {
   }, [selectedId, loadDocuments]);
 
   // --- actions --------------------------------------------------------------
-  async function createPatient(name: string) {
+  async function createPatient(payload: NewPatient) {
     try {
-      const p = await api.createPatient(name);
+      const p = await api.createPatient(payload);
       setPatients((prev) => [...prev, p]);
       setSelectedId(p.id);
     } catch (e) {
@@ -77,6 +84,7 @@ export default function App() {
     try {
       await api.uploadDocument(selectedId, file, docType, docDate);
       loadDocuments(selectedId);
+      setDocVersion((v) => v + 1); // records changed -> refresh summary
     } catch (e) {
       handle(e);
     } finally {
@@ -168,6 +176,7 @@ export default function App() {
 
             <PatientSummary
               patient={selected}
+              refreshSignal={docVersion}
               onSaved={(u) =>
                 setPatients((prev) =>
                   prev.map((p) => (p.id === u.id ? u : p)),
@@ -191,7 +200,9 @@ export default function App() {
               <button
                 className="welcome-mark clickable"
                 title="Add a patient"
-                onClick={() => welcomeInputRef.current?.focus()}
+                onClick={() =>
+                  document.getElementById("welcome-name-input")?.focus()
+                }
               >
                 ✚
               </button>
@@ -207,27 +218,7 @@ export default function App() {
                 : "Your record is loading. Upload a document to get started."}
             </p>
             {user.role === "doctor" && (
-              <form
-                className="welcome-add"
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const n = welcomeName.trim();
-                  if (!n) return;
-                  await createPatient(n);
-                  setWelcomeName("");
-                }}
-              >
-                <input
-                  ref={welcomeInputRef}
-                  value={welcomeName}
-                  onChange={(e) => setWelcomeName(e.target.value)}
-                  placeholder="New patient's name"
-                  aria-label="New patient's name"
-                />
-                <button type="submit" disabled={!welcomeName.trim()}>
-                  Add patient
-                </button>
-              </form>
+              <AddPatientForm onCreate={createPatient} />
             )}
           </div>
         )}

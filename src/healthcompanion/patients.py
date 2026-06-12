@@ -41,8 +41,8 @@ CREATE TABLE IF NOT EXISTS care_relationships (
 );
 """
 
-# Demographic columns added after the first release; back-filled on connect.
-_PATIENT_EXTRA_COLS = ("dob", "sex", "phone", "address")
+# Columns added after the first release; back-filled on connect.
+_PATIENT_EXTRA_COLS = ("dob", "sex", "phone", "address", "summary", "summary_sig")
 
 
 def _now() -> str:
@@ -137,6 +137,37 @@ def list_patients_for_doctor(doctor_id: str) -> list[dict[str, Any]]:
             (doctor_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# --- cached AI summary ------------------------------------------------------
+def docs_fingerprint(patient_id: str) -> str:
+    """A signature of the patient's document set; changes when docs change."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n, COALESCE(MAX(ingested_at), '') AS m "
+            "FROM documents WHERE patient_id = ?",
+            (patient_id,),
+        ).fetchone()
+    return f"{row['n']}:{row['m']}"
+
+
+def get_cached_summary(patient_id: str) -> tuple[str, str] | None:
+    """Return (summary, signature) if a cached summary exists."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT summary, summary_sig FROM patients WHERE id = ?", (patient_id,)
+        ).fetchone()
+    if not row:
+        return None
+    return (row["summary"] or "", row["summary_sig"] or "")
+
+
+def set_cached_summary(patient_id: str, summary: str, sig: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE patients SET summary = ?, summary_sig = ? WHERE id = ?",
+            (summary, sig, patient_id),
+        )
 
 
 def add_document(
