@@ -103,6 +103,43 @@ def ask(
     }
 
 
+_SUMMARY_SYSTEM = """You are a clinical assistant preparing a brief at-a-glance
+summary of a patient for a doctor, using ONLY the record excerpts provided.
+
+Produce a concise summary with these sections (omit a section if there's nothing
+for it): Active medications, Conditions/diagnoses, Recent results/findings,
+Notable notes. Use short bullet points, include dates where available, and cite
+nothing you cannot see in the excerpts. Do NOT diagnose or recommend new
+treatment. If the records are sparse, say what little is known. Keep it under
+180 words."""
+
+
+def summarize_patient(patient_id: str) -> dict[str, Any]:
+    """Generate a short clinical summary from a patient's stored records."""
+    if patients.get_patient(patient_id) is None:
+        raise ValueError(f"Unknown patient: {patient_id}")
+
+    chunks = vectorstore.get_all_chunks(patient_id)
+    if not chunks:
+        return {"summary": "", "has_records": False}
+
+    context = _build_context(chunks)
+    client = get_client()
+    from google.genai import types
+
+    response = call_with_retry(
+        lambda: client.models.generate_content(
+            model=config.MODEL_GEN,
+            contents="Summarize this patient's records.",
+            config=types.GenerateContentConfig(
+                system_instruction=f"{_SUMMARY_SYSTEM}\n\nPatient record excerpts:\n{context}",
+                temperature=0.2,
+            ),
+        )
+    )
+    return {"summary": (response.text or "").strip(), "has_records": True}
+
+
 def _dedupe_sources(hits: list[dict[str, Any]]) -> list[dict[str, str]]:
     seen = set()
     out = []

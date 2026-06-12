@@ -17,6 +17,10 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS patients (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
+    dob         TEXT,
+    sex         TEXT,
+    phone       TEXT,
+    address     TEXT,
     created_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS documents (
@@ -29,11 +33,28 @@ CREATE TABLE IF NOT EXISTS documents (
     n_chunks    INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_documents_patient ON documents(patient_id);
+CREATE TABLE IF NOT EXISTS care_relationships (
+    doctor_id   TEXT NOT NULL,
+    patient_id  TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (doctor_id, patient_id)
+);
 """
+
+# Demographic columns added after the first release; back-filled on connect.
+_PATIENT_EXTRA_COLS = ("dob", "sex", "phone", "address")
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add any patient columns missing from an older database."""
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(patients)")}
+    for col in _PATIENT_EXTRA_COLS:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE patients ADD COLUMN {col} TEXT")
 
 
 def _connect() -> sqlite3.Connection:
@@ -41,18 +62,42 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    _migrate(conn)
     return conn
 
 
-def create_patient(name: str) -> str:
+_EDITABLE_FIELDS = ("name", "dob", "sex", "phone", "address")
+
+
+def create_patient(
+    name: str,
+    dob: str | None = None,
+    sex: str | None = None,
+    phone: str | None = None,
+    address: str | None = None,
+) -> str:
     """Create a patient and return its generated id."""
     pid = uuid.uuid4().hex[:12]
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO patients (id, name, created_at) VALUES (?, ?, ?)",
-            (pid, name, _now()),
+            "INSERT INTO patients (id, name, dob, sex, phone, address, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (pid, name, dob, sex, phone, address, _now()),
         )
     return pid
+
+
+def update_patient(patient_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
+    """Update editable demographic fields; ignores unknown/None keys."""
+    updates = {k: v for k, v in fields.items() if k in _EDITABLE_FIELDS and v is not None}
+    if updates:
+        sets = ", ".join(f"{k} = ?" for k in updates)
+        with _connect() as conn:
+            conn.execute(
+                f"UPDATE patients SET {sets} WHERE id = ?",
+                (*updates.values(), patient_id),
+            )
+    return get_patient(patient_id)
 
 
 def get_patient(patient_id: str) -> dict[str, Any] | None:
@@ -67,6 +112,29 @@ def list_patients() -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
             "SELECT * FROM patients ORDER BY created_at"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# --- doctor <-> patient care relationships ----------------------------------
+def link_doctor_patient(doctor_id: str, patient_id: str) -> None:
+    """Record that a doctor is dealing with a patient (idempotent)."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO care_relationships "
+            "(doctor_id, patient_id, created_at) VALUES (?, ?, ?)",
+            (doctor_id, patient_id, _now()),
+        )
+
+
+def list_patients_for_doctor(doctor_id: str) -> list[dict[str, Any]]:
+    """Patients this doctor is dealing with."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT p.* FROM patients p "
+            "JOIN care_relationships c ON c.patient_id = p.id "
+            "WHERE c.doctor_id = ? ORDER BY p.created_at",
+            (doctor_id,),
         ).fetchall()
     return [dict(r) for r in rows]
 

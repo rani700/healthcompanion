@@ -427,11 +427,161 @@ button:disabled {
   color: var(--amber);
 }
 
+/* ---------- Scope toggle (My patients / All) ---------- */
+.scope-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin: 10px 0 2px;
+  padding: 3px;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.scope-toggle button {
+  border: 0;
+  background: transparent;
+  padding: 6px 0;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.scope-toggle button.on {
+  background: var(--surface-raised);
+  color: var(--green-deep);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- Patient summary card ---------- */
+.summary-card {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.85fr) 1.4fr;
+  gap: 22px;
+  margin: 22px 36px 0;
+  padding: 18px 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+}
+.summary-demographics {
+  border-right: 1px solid var(--line);
+  padding-right: 22px;
+}
+.sd-head,
+.summary-ai h2 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.summary-card h2 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 17px;
+  margin: 0 0 12px;
+}
+.sd-edit {
+  border: 0;
+  background: transparent;
+  color: var(--green-deep);
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.sd-edit:hover {
+  text-decoration: underline;
+}
+.sd-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  margin: 0;
+}
+.sd-field.wide {
+  grid-column: 1 / -1;
+}
+.sd-field dt {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  margin-bottom: 2px;
+}
+.sd-field dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.sd-field dd.muted {
+  color: var(--line-strong);
+  font-weight: 400;
+}
+.sd-edit-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.sd-edit-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.sd-edit-form label.wide {
+  grid-column: 1 / -1;
+}
+.sd-edit-form input,
+.sd-edit-form select {
+  font-size: 13.5px;
+  padding: 7px 10px;
+}
+.sd-edit-form button {
+  grid-column: 1 / -1;
+  border: 0;
+  background: var(--green);
+  color: #f4f1e8;
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 9px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.sd-edit-form button:hover {
+  background: var(--green-deep);
+}
+.summary-text {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.summary-empty {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-mute);
+  font-style: italic;
+}
+.summary-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-mute);
+  font-size: 13.5px;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(320px, 0.85fr) 1.15fr;
   gap: 24px;
-  padding: 24px 36px 32px;
+  padding: 20px 36px 32px;
   min-height: 0;
   flex: 1;
 }
@@ -1046,6 +1196,16 @@ button:disabled {
   }
   .workspace {
     grid-template-columns: 1fr;
+  }
+  .summary-card {
+    grid-template-columns: 1fr;
+    margin: 18px 20px 0;
+  }
+  .summary-demographics {
+    border-right: 0;
+    padding-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 16px;
   }
   .welcome-add {
     flex-direction: column;

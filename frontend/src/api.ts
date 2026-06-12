@@ -27,8 +27,24 @@ export type AuthResponse = { token: string; user: User };
 export type Patient = {
   id: string;
   name: string;
+  dob: string | null;
+  sex: string | null;
+  phone: string | null;
+  address: string | null;
   created_at: string;
 };
+
+export type Demographics = {
+  name?: string;
+  dob?: string;
+  sex?: string;
+  phone?: string;
+  address?: string;
+};
+
+export type PatientSummary = { summary: string; has_records: boolean };
+
+export type Scope = "mine" | "all";
 
 export type Document = {
   id: string;
@@ -108,11 +124,17 @@ export const api = {
   },
 
   // patients
-  listPatients() {
-    return request<Patient[]>("/patients");
+  listPatients(scope: Scope = "all") {
+    return request<Patient[]>(`/patients?scope=${scope}`);
   },
   createPatient(name: string) {
     return request<Patient>("/patients", jsonBody("POST", { name }));
+  },
+  updatePatient(id: string, fields: Demographics) {
+    return request<Patient>(`/patients/${id}`, jsonBody("PATCH", fields));
+  },
+  getSummary(id: string) {
+    return request<PatientSummary>(`/patients/${id}/summary`);
   },
   listDocuments(patientId: string) {
     return request<Document[]>(`/patients/${patientId}/documents`);

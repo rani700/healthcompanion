@@ -62,6 +62,28 @@ def add_chunks(
     return len(chunks)
 
 
+def get_all_chunks(patient_id: str, limit: int = 60):
+    """Return up to ``limit`` stored chunks for a patient (for summarization)."""
+    col = _collection(patient_id)
+    if col.count() == 0:
+        return []
+    res = col.get(include=["documents", "metadatas"], limit=limit)
+    docs = res.get("documents") or []
+    metas = res.get("metadatas") or []
+    out = [
+        {
+            "text": doc,
+            "doc_type": (meta or {}).get("doc_type", ""),
+            "doc_date": (meta or {}).get("doc_date", ""),
+            "filename": (meta or {}).get("filename", ""),
+        }
+        for doc, meta in zip(docs, metas)
+    ]
+    # Group roughly by date so the summary reads chronologically.
+    out.sort(key=lambda c: c["doc_date"] or "")
+    return out
+
+
 def query(patient_id: str, query_embedding: list[float], top_k: int = config.TOP_K):
     """Return the top-k most relevant chunks for a patient.
 

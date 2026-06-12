@@ -37,6 +37,7 @@ from healthcompanion import auth, patients
 from healthcompanion.guardrails import NotMedicalDocument
 from healthcompanion.ingest import ingest_document
 from healthcompanion.rag import ask as rag_ask
+from healthcompanion.rag import summarize_patient as rag_summarize
 from healthcompanion.security import create_token, decode_token
 
 app = FastAPI(title="HealthCompanion", version="0.2.0")
@@ -66,10 +67,28 @@ class LoginBody(BaseModel):
 
 class CreatePatient(BaseModel):
     name: str
+    dob: str | None = None
+    sex: str | None = None
+    phone: str | None = None
+    address: str | None = None
+
+
+class UpdatePatient(BaseModel):
+    name: str | None = None
+    dob: str | None = None
+    sex: str | None = None
+    phone: str | None = None
+    address: str | None = None
 
 
 class AskRequest(BaseModel):
     question: str
+
+
+def _link_if_doctor(user: dict, patient_id: str) -> None:
+    """Record a care relationship when a doctor works with a patient."""
+    if user["role"] == "doctor":
+        patients.link_doctor_patient(user["id"], patient_id)
 
 
 # --- Auth dependencies -------------------------------------------------------
@@ -131,8 +150,10 @@ def me(user: dict = Depends(current_user)):
 
 # --- Patient routes ----------------------------------------------------------
 @app.get("/patients")
-def list_patients(user: dict = Depends(current_user)):
+def list_patients(scope: str = "all", user: dict = Depends(current_user)):
     if user["role"] == "doctor":
+        if scope == "mine":
+            return patients.list_patients_for_doctor(user["id"])
         return patients.list_patients()
     # Patients see only themselves.
     p = patients.get_patient(user.get("patient_id") or "")
@@ -140,9 +161,34 @@ def list_patients(user: dict = Depends(current_user)):
 
 
 @app.post("/patients")
-def create_patient(body: CreatePatient, _: dict = Depends(require_doctor)):
-    pid = patients.create_patient(body.name)
-    return {"id": pid, "name": body.name}
+def create_patient(body: CreatePatient, user: dict = Depends(require_doctor)):
+    pid = patients.create_patient(
+        body.name, dob=body.dob, sex=body.sex, phone=body.phone, address=body.address
+    )
+    patients.link_doctor_patient(user["id"], pid)  # creator is dealing with them
+    return patients.get_patient(pid)
+
+
+@app.get("/patients/{patient_id}")
+def get_patient(patient_id: str, user: dict = Depends(current_user)):
+    _authorize_patient(user, patient_id)
+    _link_if_doctor(user, patient_id)
+    return patients.get_patient(patient_id)
+
+
+@app.patch("/patients/{patient_id}")
+def update_patient(
+    patient_id: str, body: UpdatePatient, user: dict = Depends(current_user)
+):
+    _authorize_patient(user, patient_id)
+    return patients.update_patient(patient_id, body.model_dump(exclude_none=True))
+
+
+@app.get("/patients/{patient_id}/summary")
+def patient_summary(patient_id: str, user: dict = Depends(current_user)):
+    _authorize_patient(user, patient_id)
+    _link_if_doctor(user, patient_id)
+    return rag_summarize(patient_id)
 
 
 @app.get("/patients/{patient_id}/documents")
@@ -163,6 +209,7 @@ def upload_document(
     # Ingestion makes blocking Gemini calls; running it on the event loop would
     # stall health probes and every other request.
     _authorize_patient(user, patient_id)
+    _link_if_doctor(user, patient_id)
     config.ensure_dirs()
 
     safe_name = Path(file.filename or "upload").name
@@ -188,6 +235,7 @@ def upload_document(
 @app.post("/patients/{patient_id}/ask")
 def ask(patient_id: str, body: AskRequest, user: dict = Depends(current_user)):
     _authorize_patient(user, patient_id)
+    _link_if_doctor(user, patient_id)
     # Answer style follows the caller's role.
     return rag_ask(patient_id, body.question, role=user["role"])
 

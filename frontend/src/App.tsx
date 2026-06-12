@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, AuthExpired, type Document, type Patient } from "./api";
+import { api, AuthExpired, type Document, type Patient, type Scope } from "./api";
 import { useAuth } from "./auth";
 import Login from "./components/Login";
 import Sidebar from "./components/Sidebar";
 import DocumentsPanel from "./components/DocumentsPanel";
 import AskPanel, { type Message } from "./components/AskPanel";
+import PatientSummary from "./components/PatientSummary";
 
 export default function App() {
   const { user, ready, logout } = useAuth();
 
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [scope, setScope] = useState<Scope>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -34,7 +36,7 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     api
-      .listPatients()
+      .listPatients(scope)
       .then((ps) => {
         setPatients(ps);
         if (user.role === "patient") {
@@ -42,7 +44,7 @@ export default function App() {
         }
       })
       .catch(handle);
-  }, [user, handle]);
+  }, [user, scope, handle]);
 
   const loadDocuments = useCallback(
     (id: string) => {
@@ -131,6 +133,8 @@ export default function App() {
         user={user}
         patients={patients}
         selectedId={selectedId}
+        scope={scope}
+        onScopeChange={setScope}
         onSelect={setSelectedId}
         onCreate={createPatient}
         onLogout={logout}
@@ -161,6 +165,15 @@ export default function App() {
               </div>
               <span className={`role-tag ${user.role}`}>{user.role} view</span>
             </header>
+
+            <PatientSummary
+              patient={selected}
+              onSaved={(u) =>
+                setPatients((prev) =>
+                  prev.map((p) => (p.id === u.id ? u : p)),
+                )
+              }
+            />
 
             <div className="workspace">
               <DocumentsPanel documents={documents} busy={uploading} onUpload={upload} />

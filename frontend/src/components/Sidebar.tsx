@@ -1,10 +1,12 @@
 import { useState } from "react";
-import type { Patient, User } from "../api";
+import type { Patient, Scope, User } from "../api";
 
 type Props = {
   user: User;
   patients: Patient[];
   selectedId: string | null;
+  scope: Scope;
+  onScopeChange: (s: Scope) => void;
   onSelect: (id: string) => void;
   onCreate: (name: string) => Promise<void>;
   onLogout: () => void;
@@ -24,6 +26,8 @@ export default function Sidebar({
   user,
   patients,
   selectedId,
+  scope,
+  onScopeChange,
   onSelect,
   onCreate,
   onLogout,
@@ -75,6 +79,23 @@ export default function Sidebar({
             </span>
           )}
         </div>
+
+        {isDoctor && (
+          <div className="scope-toggle" role="group" aria-label="Patient scope">
+            <button
+              className={scope === "mine" ? "on" : ""}
+              onClick={() => onScopeChange("mine")}
+            >
+              My patients
+            </button>
+            <button
+              className={scope === "all" ? "on" : ""}
+              onClick={() => onScopeChange("all")}
+            >
+              All
+            </button>
+          </div>
+        )}
 
         {isDoctor && patients.length > 0 && (
           <div className="patient-search">
