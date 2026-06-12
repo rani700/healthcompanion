@@ -73,6 +73,35 @@ def test_visit_lifecycle_and_attribution(client):
     assert names == {"Dr A", "Dr B"}
 
 
+def test_doctor_profile_signup_and_edit(client):
+    # Signup with a profile
+    r = client.post("/auth/signup", json={
+        "email": "doc@x.com", "password": "secret123", "name": "Dr Meera",
+        "role": "doctor", "specialty": "Cardiology", "clinic": "City Heart",
+    })
+    user = r.json()["user"]
+    assert user["specialty"] == "Cardiology" and user["clinic"] == "City Heart"
+    tok = r.json()["token"]
+
+    # Directory exposes profile
+    pat = client.post("/auth/signup", json={"email": "p@x.com", "password": "secret123",
+                                            "name": "P", "role": "patient", "dob": "1990-01-01"})
+    listed = client.get("/doctors", headers=H(pat.json()["token"])).json()[0]
+    assert listed["specialty"] == "Cardiology"
+
+    # Doctor edits their profile
+    upd = client.patch("/auth/profile", json={"specialty": "Neurology", "clinic": "Brain Clinic"},
+                       headers=H(tok)).json()
+    assert upd["specialty"] == "Neurology" and upd["clinic"] == "Brain Clinic"
+
+
+def test_patient_cannot_edit_profile(client):
+    r = client.post("/auth/signup", json={"email": "p@x.com", "password": "secret123",
+                                          "name": "P", "role": "patient", "dob": "1990-01-01"})
+    resp = client.patch("/auth/profile", json={"specialty": "x"}, headers=H(r.json()["token"]))
+    assert resp.status_code == 403
+
+
 def test_doctor_directory(client):
     _doctor(client, "a@x.com", "Dr A")
     _doctor(client, "b@x.com", "Dr B")

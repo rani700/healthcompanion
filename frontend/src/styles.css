@@ -1277,16 +1277,53 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.user-role {
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+.user-sub {
+  font-size: 11.5px;
+  color: var(--ink-mute);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.user-role.doctor {
-  color: var(--amber);
+.profile-edit {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--paper-2);
+  color: var(--green-deep);
+  cursor: pointer;
+  font-size: 13px;
 }
-.user-role.patient {
-  color: var(--green);
+.profile-edit:hover {
+  background: var(--green-wash);
+}
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.profile-form input {
+  font-size: 13px;
+  padding: 7px 10px;
+}
+.profile-form button {
+  border: 0;
+  background: var(--green);
+  color: #f4f1e8;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.profile-form button:hover {
+  background: var(--green-deep);
 }
 .logout {
   flex: none;

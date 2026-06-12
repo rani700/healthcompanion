@@ -20,7 +20,7 @@ import AddPatientForm from "./components/AddPatientForm";
 import VisitsPanel from "./components/VisitsPanel";
 
 export default function App() {
-  const { user, ready, logout } = useAuth();
+  const { user, ready, logout, updateProfile } = useAuth();
 
   const [patients, setPatients] = useState<Patient[]>([]);
   const [scope, setScope] = useState<Scope>("all");
@@ -195,6 +195,7 @@ export default function App() {
         onScopeChange={setScope}
         onSelect={setSelectedId}
         onCreate={createPatient}
+        onUpdateProfile={updateProfile}
         onLogout={logout}
         onHome={() => setSelectedId(null)}
       />

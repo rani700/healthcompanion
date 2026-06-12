@@ -26,9 +26,14 @@ CREATE TABLE IF NOT EXISTS users (
     role          TEXT NOT NULL,
     patient_id    TEXT,
     name          TEXT NOT NULL,
+    specialty     TEXT,
+    clinic        TEXT,
     created_at    TEXT NOT NULL
 );
 """
+
+# Doctor-profile columns added after first release; back-filled on connect.
+_USER_EXTRA_COLS = ("specialty", "clinic")
 
 
 def _now() -> str:
@@ -40,6 +45,10 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+    for col in _USER_EXTRA_COLS:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
     return conn
 
 
@@ -64,12 +73,23 @@ def get_user(user_id: str) -> dict[str, Any] | None:
 
 
 def list_doctors() -> list[dict[str, Any]]:
-    """Public directory of doctors (id + name only)."""
+    """Public directory of doctors (id, name, specialty, clinic)."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT id, name FROM users WHERE role = 'doctor' ORDER BY name"
+            "SELECT id, name, specialty, clinic FROM users "
+            "WHERE role = 'doctor' ORDER BY name"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def update_profile(user_id: str, specialty: str | None, clinic: str | None) -> dict[str, Any]:
+    """Update a doctor's profile fields, then return the public user."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET specialty = ?, clinic = ? WHERE id = ?",
+            (specialty, clinic, user_id),
+        )
+    return _public(get_user(user_id))
 
 
 def signup(
@@ -81,6 +101,8 @@ def signup(
     sex: str | None = None,
     phone: str | None = None,
     address: str | None = None,
+    specialty: str | None = None,
+    clinic: str | None = None,
 ) -> dict[str, Any]:
     """Create a user. For ``patient`` role, also create a linked patient record.
 
@@ -109,9 +131,11 @@ def signup(
     with _connect() as conn:
         conn.execute(
             "INSERT INTO users "
-            "(id, email, password_hash, role, patient_id, name, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (user_id, email, hash_password(password), role, patient_id, name, _now()),
+            "(id, email, password_hash, role, patient_id, name, specialty, clinic, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, email, hash_password(password), role, patient_id, name,
+             specialty if role == "doctor" else None,
+             clinic if role == "doctor" else None, _now()),
         )
     return _public(get_user(user_id))
 
@@ -134,4 +158,6 @@ def _public(user: dict[str, Any] | None) -> dict[str, Any]:
         "role": user["role"],
         "patient_id": user["patient_id"],
         "name": user["name"],
+        "specialty": user["specialty"] if "specialty" in user.keys() else None,
+        "clinic": user["clinic"] if "clinic" in user.keys() else None,
     }

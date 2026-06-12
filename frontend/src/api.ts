@@ -20,7 +20,11 @@ export type User = {
   role: Role;
   patient_id: string | null;
   name: string;
+  specialty: string | null;
+  clinic: string | null;
 };
+
+export type ProfileFields = { specialty?: string; clinic?: string };
 
 export type AuthResponse = { token: string; user: User };
 
@@ -78,7 +82,12 @@ export type CareTeamMember = {
   last_seen: string;
 };
 
-export type Doctor = { id: string; name: string };
+export type Doctor = {
+  id: string;
+  name: string;
+  specialty: string | null;
+  clinic: string | null;
+};
 
 export type Source = {
   filename: string;
@@ -136,7 +145,7 @@ export const api = {
     password: string,
     name: string,
     role: Role,
-    extra: Demographics = {},
+    extra: Demographics & ProfileFields = {},
   ) {
     return request<AuthResponse>(
       "/auth/signup",
@@ -151,6 +160,9 @@ export const api = {
   },
   me() {
     return request<User>("/auth/me");
+  },
+  updateProfile(fields: ProfileFields) {
+    return request<User>("/auth/profile", jsonBody("PATCH", fields));
   },
 
   // patients

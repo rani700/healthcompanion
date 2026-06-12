@@ -63,11 +63,18 @@ class SignupBody(BaseModel):
     sex: str | None = None
     phone: str | None = None
     address: str | None = None
+    specialty: str | None = None
+    clinic: str | None = None
 
 
 class LoginBody(BaseModel):
     email: str
     password: str
+
+
+class ProfileBody(BaseModel):
+    specialty: str | None = None
+    clinic: str | None = None
 
 
 class CreatePatient(BaseModel):
@@ -142,6 +149,7 @@ def signup(body: SignupBody):
         user = auth.signup(
             body.email, body.password, body.name, body.role,
             dob=body.dob, sex=body.sex, phone=body.phone, address=body.address,
+            specialty=body.specialty, clinic=body.clinic,
         )
     except auth.AuthError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -160,6 +168,11 @@ def login(body: LoginBody):
 @app.get("/auth/me")
 def me(user: dict = Depends(current_user)):
     return auth._public(user)
+
+
+@app.patch("/auth/profile")
+def update_profile(body: ProfileBody, user: dict = Depends(require_doctor)):
+    return auth.update_profile(user["id"], body.specialty, body.clinic)
 
 
 @app.get("/doctors")

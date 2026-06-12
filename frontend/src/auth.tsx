@@ -10,6 +10,7 @@ import {
   api,
   setAuthToken,
   type Demographics,
+  type ProfileFields,
   type Role,
   type User,
 } from "./api";
@@ -23,8 +24,9 @@ type AuthState = {
     password: string,
     name: string,
     role: Role,
-    extra?: Demographics,
+    extra?: Demographics & ProfileFields,
   ) => Promise<void>;
+  updateProfile: (fields: ProfileFields) => Promise<void>;
   logout: () => void;
 };
 
@@ -73,7 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password: string,
       name: string,
       role: Role,
-      extra: Demographics = {},
+      extra: Demographics & ProfileFields = {},
     ) => {
       const { token, user: u } = await api.signup(
         email,
@@ -87,6 +89,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [persist],
   );
 
+  const updateProfile = useCallback(async (fields: ProfileFields) => {
+    const updated = await api.updateProfile(fields);
+    setUser(updated);
+  }, []);
+
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
     setAuthToken(null);
@@ -94,8 +101,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, ready, login, signup, logout }),
-    [user, ready, login, signup, logout],
+    () => ({ user, ready, login, signup, updateProfile, logout }),
+    [user, ready, login, signup, updateProfile, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -99,6 +99,8 @@ export default function VisitsPanel({
             {doctors.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
+                {d.specialty ? ` — ${d.specialty}` : ""}
+                {d.clinic ? ` (${d.clinic})` : ""}
               </option>
             ))}
           </select>

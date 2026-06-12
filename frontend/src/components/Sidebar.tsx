@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { NewPatient, Patient, Scope, User } from "../api";
+import type { NewPatient, Patient, ProfileFields, Scope, User } from "../api";
 
 type Props = {
   user: User;
@@ -9,6 +9,7 @@ type Props = {
   onScopeChange: (s: Scope) => void;
   onSelect: (id: string) => void;
   onCreate: (payload: NewPatient) => Promise<void>;
+  onUpdateProfile: (fields: ProfileFields) => Promise<void>;
   onLogout: () => void;
   onHome: () => void;
 };
@@ -30,6 +31,7 @@ export default function Sidebar({
   onScopeChange,
   onSelect,
   onCreate,
+  onUpdateProfile,
   onLogout,
   onHome,
 }: Props) {
@@ -37,7 +39,22 @@ export default function Sidebar({
   const [dob, setDob] = useState("");
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [specialty, setSpecialty] = useState(user.specialty ?? "");
+  const [clinic, setClinic] = useState(user.clinic ?? "");
+  const [savingProfile, setSavingProfile] = useState(false);
   const isDoctor = user.role === "doctor";
+
+  async function saveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingProfile(true);
+    try {
+      await onUpdateProfile({ specialty, clinic });
+      setEditingProfile(false);
+    } finally {
+      setSavingProfile(false);
+    }
+  }
 
   const q = query.trim().toLowerCase();
   const visible = q
@@ -172,15 +189,50 @@ export default function Sidebar({
         )}
       </div>
 
-      <div className="user-card">
-        <span className="avatar small">{initials(user.name)}</span>
-        <span className="user-meta">
-          <span className="user-name">{user.name}</span>
-          <span className={`user-role ${user.role}`}>{user.role}</span>
-        </span>
-        <button className="logout" onClick={onLogout} title="Sign out">
-          ⏻
-        </button>
+      <div className="user-block">
+        <div className="user-card">
+          <span className="avatar small">{initials(user.name)}</span>
+          <span className="user-meta">
+            <span className="user-name">{user.name}</span>
+            <span className="user-sub">
+              {isDoctor && (user.specialty || user.clinic)
+                ? [user.specialty, user.clinic].filter(Boolean).join(" · ")
+                : user.role}
+            </span>
+          </span>
+          {isDoctor && (
+            <button
+              className="profile-edit"
+              onClick={() => setEditingProfile((v) => !v)}
+              title="Edit profile"
+            >
+              ✎
+            </button>
+          )}
+          <button className="logout" onClick={onLogout} title="Sign out">
+            ⏻
+          </button>
+        </div>
+
+        {isDoctor && editingProfile && (
+          <form className="profile-form" onSubmit={saveProfile}>
+            <input
+              value={specialty}
+              onChange={(e) => setSpecialty(e.target.value)}
+              placeholder="Specialty (e.g. Cardiology)"
+              aria-label="Specialty"
+            />
+            <input
+              value={clinic}
+              onChange={(e) => setClinic(e.target.value)}
+              placeholder="Clinic / hospital"
+              aria-label="Clinic"
+            />
+            <button type="submit" disabled={savingProfile}>
+              {savingProfile ? "Saving…" : "Save profile"}
+            </button>
+          </form>
+        )}
       </div>
     </aside>
   );

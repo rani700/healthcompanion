@@ -12,6 +12,8 @@ export default function Login() {
   const [dob, setDob] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [specialty, setSpecialty] = useState("");
+  const [clinic, setClinic] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export default function Login() {
           role,
           role === "patient"
             ? { dob, phone: phone || undefined, address: address || undefined }
-            : {},
+            : { specialty: specialty || undefined, clinic: clinic || undefined },
         );
       }
     } catch (err) {
@@ -140,6 +142,26 @@ export default function Login() {
                       value={address}
                       onChange={(e) => setAddress(e.target.value)}
                       placeholder="e.g. 12 MG Road"
+                    />
+                  </label>
+                </>
+              )}
+              {role === "doctor" && (
+                <>
+                  <label className="field">
+                    <span>Specialty (optional)</span>
+                    <input
+                      value={specialty}
+                      onChange={(e) => setSpecialty(e.target.value)}
+                      placeholder="e.g. Cardiology"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Clinic / hospital (optional)</span>
+                    <input
+                      value={clinic}
+                      onChange={(e) => setClinic(e.target.value)}
+                      placeholder="e.g. City Heart Clinic"
                     />
                   </label>
                 </>
