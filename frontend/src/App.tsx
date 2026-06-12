@@ -122,6 +122,18 @@ export default function App() {
     }
   }
 
+  async function moveDoc(docId: string, visitId: string | null) {
+    if (!selectedId) return;
+    try {
+      await api.moveDocument(docId, visitId);
+      loadDocuments(selectedId);
+      loadVisits(selectedId); // visit counts changed
+      setDocVersion((v) => v + 1); // summaries may change
+    } catch (e) {
+      handle(e);
+    }
+  }
+
   async function createVisit(title: string, doctorId?: string) {
     if (!selectedId) return;
     try {
@@ -270,6 +282,7 @@ export default function App() {
                 activeVisitId={selectedVisitId}
                 busy={uploading}
                 onUpload={upload}
+                onMove={moveDoc}
               />
               <AskPanel
                 messages={messages}

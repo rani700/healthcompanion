@@ -64,6 +64,21 @@ def add_chunks(
     return len(chunks)
 
 
+def update_doc_visit(patient_id: str, doc_id: str, visit_id: str | None) -> int:
+    """Re-tag a document's chunks with a new visit_id so visit-scoped search
+    stays accurate after a document is moved."""
+    col = _collection(patient_id)
+    res = col.get(where={"doc_id": doc_id}, include=["metadatas"])
+    ids = res.get("ids") or []
+    metas = res.get("metadatas") or []
+    if not ids:
+        return 0
+    for m in metas:
+        m["visit_id"] = visit_id or ""
+    col.update(ids=ids, metadatas=metas)
+    return len(ids)
+
+
 def get_all_chunks(patient_id: str, limit: int = 60, visit_id: str | None = None):
     """Return up to ``limit`` stored chunks for a patient (for summarization).
 

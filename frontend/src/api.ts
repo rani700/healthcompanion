@@ -184,6 +184,12 @@ export const api = {
     const q = visitId ? `?visit_id=${visitId}` : "";
     return request<Document[]>(`/patients/${patientId}/documents${q}`);
   },
+  moveDocument(docId: string, visitId: string | null) {
+    return request<Document>(
+      `/documents/${docId}`,
+      jsonBody("PATCH", { visit_id: visitId }),
+    );
+  },
   uploadDocument(
     patientId: string,
     file: File,

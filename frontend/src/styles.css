@@ -982,6 +982,18 @@ button:disabled {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
+}
+.doc-move {
+  flex: none;
+  max-width: 130px;
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: var(--ink-mute);
+}
+.doc-move:focus {
+  color: var(--ink);
 }
 .doc-name {
   font-weight: 600;

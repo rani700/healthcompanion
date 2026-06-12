@@ -268,6 +268,23 @@ def add_document(
     return doc_id
 
 
+def get_document(doc_id: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM documents WHERE id = ?", (doc_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def set_document_visit(doc_id: str, visit_id: str | None) -> dict[str, Any] | None:
+    """Re-file a document under a visit (or None for general)."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE documents SET visit_id = ? WHERE id = ?", (visit_id, doc_id)
+        )
+    return get_document(doc_id)
+
+
 def list_documents(
     patient_id: str, visit_id: str | None = None
 ) -> list[dict[str, Any]]:

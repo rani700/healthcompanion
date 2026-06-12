@@ -129,6 +129,30 @@ def test_patient_requests_specific_doctor(client):
     assert team[0]["doctor_name"] == "Dr A"
 
 
+def test_move_document_between_visits(client):
+    from healthcompanion import patients
+
+    da = _doctor(client, "a@x.com", "Dr A")
+    pid = client.post("/patients", json={"name": "M", "dob": "1980-01-01"},
+                      headers=H(da)).json()["id"]
+    v1 = client.post(f"/patients/{pid}/visits", json={"title": "V1"}, headers=H(da)).json()["id"]
+    v2 = client.post(f"/patients/{pid}/visits", json={"title": "V2"}, headers=H(da)).json()["id"]
+
+    # A document filed under V1 (no Gemini needed — registered directly).
+    doc_id = patients.add_document(pid, "f.png", "rx", "2026-01-01", 1, visit_id=v1)
+
+    # Move it to V2.
+    r = client.patch(f"/documents/{doc_id}", json={"visit_id": v2}, headers=H(da))
+    assert r.status_code == 200 and r.json()["visit_id"] == v2
+    counts = {v["title"]: v["n_docs"]
+              for v in client.get(f"/patients/{pid}/visits", headers=H(da)).json()}
+    assert counts["V2"] == 1 and counts["V1"] == 0
+
+    # Move it back to general (no visit).
+    client.patch(f"/documents/{doc_id}", json={"visit_id": None}, headers=H(da))
+    assert patients.get_document(doc_id)["visit_id"] is None
+
+
 def test_patient_self_recorded_visit(client):
     # A patient records their own visit -> attributed to "Self-recorded"
     r = client.post("/auth/signup", json={"email": "self@x.com", "password": "secret123",

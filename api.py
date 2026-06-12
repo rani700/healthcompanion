@@ -33,7 +33,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
-from healthcompanion import auth, patients
+from healthcompanion import auth, patients, vectorstore
 from healthcompanion.guardrails import NotMedicalDocument
 from healthcompanion.ingest import ingest_document
 from healthcompanion.rag import ask as rag_ask
@@ -101,6 +101,10 @@ class AskRequest(BaseModel):
 class CreateVisit(BaseModel):
     title: str
     doctor_id: str | None = None  # a patient may request a specific doctor
+
+
+class MoveDoc(BaseModel):
+    visit_id: str | None = None  # None/"" -> general (no visit)
 
 
 def _link_if_doctor(user: dict, patient_id: str) -> None:
@@ -291,6 +295,23 @@ def list_documents(
 ):
     _authorize_patient(user, patient_id)
     return patients.list_documents(patient_id, visit_id=visit_id)
+
+
+@app.patch("/documents/{doc_id}")
+def move_document(doc_id: str, body: MoveDoc, user: dict = Depends(current_user)):
+    """Re-file an existing document under a visit (or general)."""
+    doc = patients.get_document(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    _authorize_patient(user, doc["patient_id"])
+    vid = body.visit_id or None
+    if vid:
+        visit = patients.get_visit(vid)
+        if visit is None or visit["patient_id"] != doc["patient_id"]:
+            raise HTTPException(status_code=400, detail="Visit not found for this patient.")
+    patients.set_document_visit(doc_id, vid)
+    vectorstore.update_doc_visit(doc["patient_id"], doc_id, vid)
+    return patients.get_document(doc_id)
 
 
 @app.post("/patients/{patient_id}/documents")

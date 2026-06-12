@@ -12,6 +12,7 @@ type Props = {
     docDate: string,
     visitId: string,
   ) => Promise<void>;
+  onMove: (docId: string, visitId: string | null) => Promise<void>;
 };
 
 const DOC_TYPES = [
@@ -34,6 +35,7 @@ export default function DocumentsPanel({
   activeVisitId,
   busy,
   onUpload,
+  onMove,
 }: Props) {
   const [docType, setDocType] = useState("rx");
   const [docDate, setDocDate] = useState("");
@@ -46,9 +48,6 @@ export default function DocumentsPanel({
   useEffect(() => {
     setVisitId(activeVisitId ?? "");
   }, [activeVisitId]);
-
-  const visitTitle = (id: string | null) =>
-    id ? visits.find((v) => v.id === id)?.title : null;
 
   // Visits selectable for an upload: open ones, plus the focused visit.
   const selectable = visits.filter(
@@ -148,9 +147,23 @@ export default function DocumentsPanel({
               <span className="doc-name">{d.filename}</span>
               <span className="doc-sub">
                 {d.doc_type} · {d.doc_date || "undated"}
-                {visitTitle(d.visit_id) ? ` · ${visitTitle(d.visit_id)}` : ""}
               </span>
             </span>
+            <select
+              className="doc-move"
+              value={d.visit_id ?? ""}
+              onChange={(e) => onMove(d.id, e.target.value || null)}
+              aria-label="File this document under a visit"
+              title="Move to a visit"
+            >
+              <option value="">General</option>
+              {visits.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.title}
+                  {v.status === "closed" ? " (closed)" : ""}
+                </option>
+              ))}
+            </select>
           </li>
         ))}
         {documents.length === 0 && (
