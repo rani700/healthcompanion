@@ -58,6 +58,9 @@ class SignupBody(BaseModel):
     password: str
     name: str
     role: str = "patient"
+    dob: str | None = None
+    sex: str | None = None
+    phone: str | None = None
 
 
 class LoginBody(BaseModel):
@@ -83,6 +86,10 @@ class UpdatePatient(BaseModel):
 
 class AskRequest(BaseModel):
     question: str
+
+
+class CreateVisit(BaseModel):
+    title: str
 
 
 def _link_if_doctor(user: dict, patient_id: str) -> None:
@@ -128,7 +135,10 @@ def _token_response(user: dict) -> dict:
 @app.post("/auth/signup")
 def signup(body: SignupBody):
     try:
-        user = auth.signup(body.email, body.password, body.name, body.role)
+        user = auth.signup(
+            body.email, body.password, body.name, body.role,
+            dob=body.dob, sex=body.sex, phone=body.phone,
+        )
     except auth.AuthError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _token_response(user)
@@ -162,6 +172,11 @@ def list_patients(scope: str = "all", user: dict = Depends(current_user)):
 
 @app.post("/patients")
 def create_patient(body: CreatePatient, user: dict = Depends(require_doctor)):
+    if not body.dob:
+        raise HTTPException(
+            status_code=400,
+            detail="Date of birth is required (used to distinguish patients).",
+        )
     pid = patients.create_patient(
         body.name, dob=body.dob, sex=body.sex, phone=body.phone, address=body.address
     )
@@ -193,6 +208,44 @@ def patient_summary(
     return rag_summarize(patient_id, refresh=refresh)
 
 
+@app.get("/patients/{patient_id}/care-team")
+def care_team(patient_id: str, user: dict = Depends(current_user)):
+    """Doctors who have treated this patient (from their visits)."""
+    _authorize_patient(user, patient_id)
+    return patients.list_care_team(patient_id)
+
+
+# --- visits / episodes -------------------------------------------------------
+@app.get("/patients/{patient_id}/visits")
+def list_visits(patient_id: str, user: dict = Depends(current_user)):
+    _authorize_patient(user, patient_id)
+    return patients.list_visits(patient_id)
+
+
+@app.post("/patients/{patient_id}/visits")
+def create_visit(
+    patient_id: str, body: CreateVisit, user: dict = Depends(current_user)
+):
+    _authorize_patient(user, patient_id)
+    if not body.title.strip():
+        raise HTTPException(status_code=400, detail="A reason for the visit is required.")
+    if user["role"] == "doctor":
+        doctor_id, doctor_name = user["id"], user["name"]
+        patients.link_doctor_patient(user["id"], patient_id)
+    else:
+        doctor_id, doctor_name = None, "Self-recorded"
+    return patients.create_visit(patient_id, body.title.strip(), doctor_id, doctor_name)
+
+
+@app.post("/visits/{visit_id}/close")
+def close_visit(visit_id: str, user: dict = Depends(current_user)):
+    visit = patients.get_visit(visit_id)
+    if visit is None:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    _authorize_patient(user, visit["patient_id"])
+    return patients.set_visit_status(visit_id, "closed")
+
+
 @app.get("/patients/{patient_id}/documents")
 def list_documents(patient_id: str, user: dict = Depends(current_user)):
     _authorize_patient(user, patient_id)
@@ -205,6 +258,7 @@ def upload_document(
     file: UploadFile = File(...),
     doc_type: str = Form("other"),
     doc_date: str | None = Form(None),
+    visit_id: str | None = Form(None),
     user: dict = Depends(current_user),
 ):
     # NOTE: a plain `def` (not `async`) so Starlette runs this in a threadpool.
@@ -226,7 +280,9 @@ def upload_document(
         raise HTTPException(status_code=413, detail=f"File too large (max {mb} MB).")
 
     try:
-        return ingest_document(patient_id, dest, doc_type=doc_type, doc_date=doc_date)
+        return ingest_document(
+            patient_id, dest, doc_type=doc_type, doc_date=doc_date, visit_id=visit_id
+        )
     except NotMedicalDocument as e:
         dest.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=str(e))

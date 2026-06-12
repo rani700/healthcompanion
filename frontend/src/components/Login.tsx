@@ -9,6 +9,7 @@ export default function Login() {
   const [mode, setMode] = useState<Mode>("login");
   const [role, setRole] = useState<Role>("patient");
   const [name, setName] = useState("");
+  const [dob, setDob] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -17,12 +18,16 @@ export default function Login() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (mode === "signup" && role === "patient" && !dob) {
+      setError("Date of birth is required.");
+      return;
+    }
     setBusy(true);
     try {
       if (mode === "login") {
         await login(email, password);
       } else {
-        await signup(email, password, name, role);
+        await signup(email, password, name, role, role === "patient" ? { dob } : {});
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -100,6 +105,17 @@ export default function Login() {
                   required
                 />
               </label>
+              {role === "patient" && (
+                <label className="field">
+                  <span>Date of birth</span>
+                  <input
+                    type="date"
+                    value={dob}
+                    onChange={(e) => setDob(e.target.value)}
+                    required
+                  />
+                </label>
+              )}
             </>
           )}
 

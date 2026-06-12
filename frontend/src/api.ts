@@ -56,6 +56,26 @@ export type Document = {
   doc_date: string | null;
   ingested_at: string;
   n_chunks: number;
+  visit_id: string | null;
+};
+
+export type Visit = {
+  id: string;
+  patient_id: string;
+  doctor_id: string | null;
+  doctor_name: string;
+  title: string;
+  status: "open" | "closed";
+  started_at: string;
+  closed_at: string | null;
+  n_docs: number;
+};
+
+export type CareTeamMember = {
+  doctor_id: string;
+  doctor_name: string;
+  visits: number;
+  last_seen: string;
 };
 
 export type Source = {
@@ -109,10 +129,16 @@ function jsonBody(method: string, body: unknown): RequestInit {
 
 export const api = {
   // auth
-  signup(email: string, password: string, name: string, role: Role) {
+  signup(
+    email: string,
+    password: string,
+    name: string,
+    role: Role,
+    extra: Demographics = {},
+  ) {
     return request<AuthResponse>(
       "/auth/signup",
-      jsonBody("POST", { email, password, name, role }),
+      jsonBody("POST", { email, password, name, role, ...extra }),
     );
   },
   login(email: string, password: string) {
@@ -148,15 +174,34 @@ export const api = {
     file: File,
     docType: string,
     docDate: string,
+    visitId?: string,
   ) {
     const form = new FormData();
     form.append("file", file);
     form.append("doc_type", docType);
     if (docDate) form.append("doc_date", docDate);
+    if (visitId) form.append("visit_id", visitId);
     return request<Document>(`/patients/${patientId}/documents`, {
       method: "POST",
       body: form,
     });
+  },
+
+  // visits / episodes
+  listVisits(patientId: string) {
+    return request<Visit[]>(`/patients/${patientId}/visits`);
+  },
+  createVisit(patientId: string, title: string) {
+    return request<Visit>(
+      `/patients/${patientId}/visits`,
+      jsonBody("POST", { title }),
+    );
+  },
+  closeVisit(visitId: string) {
+    return request<Visit>(`/visits/${visitId}/close`, { method: "POST" });
+  },
+  careTeam(patientId: string) {
+    return request<CareTeamMember[]>(`/patients/${patientId}/care-team`);
   },
   ask(patientId: string, question: string) {
     return request<AskResult>(

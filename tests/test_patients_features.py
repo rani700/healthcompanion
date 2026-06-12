@@ -36,6 +36,11 @@ def H(t):
     return {"Authorization": f"Bearer {t}"}
 
 
+def _new(name, **extra):
+    """Patient-create payload with the now-required dob."""
+    return {"name": name, "dob": "1985-05-05", **extra}
+
+
 def test_create_with_demographics_and_get(client):
     c, tok = _doctor(client)
     r = c.post("/patients", json={
@@ -52,7 +57,7 @@ def test_create_with_demographics_and_get(client):
 
 def test_patch_demographics(client):
     c, tok = _doctor(client)
-    pid = c.post("/patients", json={"name": "A"}, headers=H(tok)).json()["id"]
+    pid = c.post("/patients", json=_new("A"), headers=H(tok)).json()["id"]
     r = c.patch(f"/patients/{pid}", json={"phone": "999", "sex": "F"}, headers=H(tok))
     assert r.status_code == 200
     assert r.json()["phone"] == "999" and r.json()["sex"] == "F"
@@ -61,10 +66,10 @@ def test_patch_demographics(client):
 def test_scope_mine_vs_all(client):
     c, tok = _doctor(client)
     # Doctor creates one (auto-linked)
-    mine_id = c.post("/patients", json={"name": "Mine"}, headers=H(tok)).json()["id"]
+    mine_id = c.post("/patients", json=_new("Mine"), headers=H(tok)).json()["id"]
     # A self-registered patient the doctor hasn't touched
     c.post("/auth/signup", json={"email": "p@x.com", "password": "secret123",
-                                 "name": "Stranger", "role": "patient"})
+                                 "name": "Stranger", "role": "patient", "dob": "1992-02-02"})
 
     all_ids = {p["id"] for p in c.get("/patients?scope=all", headers=H(tok)).json()}
     mine_ids = {p["id"] for p in c.get("/patients?scope=mine", headers=H(tok)).json()}
@@ -120,7 +125,7 @@ def test_opening_summary_links_patient_to_doctor(client):
     c, tok = _doctor(client)
     # Patient registers themselves; doctor not yet linked.
     c.post("/auth/signup", json={"email": "self@x.com", "password": "secret123",
-                                 "name": "Self Reg", "role": "patient"})
+                                 "name": "Self Reg", "role": "patient", "dob": "1988-08-08"})
     other = [p for p in c.get("/patients?scope=all", headers=H(tok)).json()][0]
 
     assert other["id"] not in {p["id"] for p in c.get("/patients?scope=mine", headers=H(tok)).json()}

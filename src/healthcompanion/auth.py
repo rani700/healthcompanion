@@ -63,7 +63,15 @@ def get_user(user_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def signup(email: str, password: str, name: str, role: str) -> dict[str, Any]:
+def signup(
+    email: str,
+    password: str,
+    name: str,
+    role: str,
+    dob: str | None = None,
+    sex: str | None = None,
+    phone: str | None = None,
+) -> dict[str, Any]:
     """Create a user. For ``patient`` role, also create a linked patient record.
 
     Returns the user dict (without the password hash).
@@ -75,11 +83,17 @@ def signup(email: str, password: str, name: str, role: str) -> dict[str, Any]:
         raise AuthError(f"Role must be one of {VALID_ROLES}.")
     if len(password) < 6:
         raise AuthError("Password must be at least 6 characters.")
+    if role == "patient" and not dob:
+        raise AuthError("Date of birth is required.")
     if get_user_by_email(email):
         raise AuthError("An account with that email already exists.")
 
     # A patient user gets their own patient record to own.
-    patient_id = patients.create_patient(name) if role == "patient" else None
+    patient_id = (
+        patients.create_patient(name, dob=dob, sex=sex, phone=phone)
+        if role == "patient"
+        else None
+    )
 
     user_id = uuid.uuid4().hex[:12]
     with _connect() as conn:

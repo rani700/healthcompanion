@@ -6,7 +6,13 @@ import {
   useMemo,
   useState,
 } from "react";
-import { api, setAuthToken, type Role, type User } from "./api";
+import {
+  api,
+  setAuthToken,
+  type Demographics,
+  type Role,
+  type User,
+} from "./api";
 
 type AuthState = {
   user: User | null;
@@ -17,6 +23,7 @@ type AuthState = {
     password: string,
     name: string,
     role: Role,
+    extra?: Demographics,
   ) => Promise<void>;
   logout: () => void;
 };
@@ -61,8 +68,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signup = useCallback(
-    async (email: string, password: string, name: string, role: Role) => {
-      const { token, user: u } = await api.signup(email, password, name, role);
+    async (
+      email: string,
+      password: string,
+      name: string,
+      role: Role,
+      extra: Demographics = {},
+    ) => {
+      const { token, user: u } = await api.signup(
+        email,
+        password,
+        name,
+        role,
+        extra,
+      );
       persist(token, u);
     },
     [persist],

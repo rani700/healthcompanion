@@ -42,12 +42,23 @@ export default function AddPatientForm({ onCreate }: Props) {
           id="welcome-name-input"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="New patient's name"
-          aria-label="New patient's name"
+          placeholder="Patient's full name"
+          aria-label="Patient's full name"
         />
-        <button type="submit" disabled={busy || !name.trim()}>
+        <input
+          type="date"
+          value={dob}
+          onChange={(e) => setDob(e.target.value)}
+          aria-label="Date of birth (required)"
+          title="Date of birth (required)"
+          required
+        />
+        <button type="submit" disabled={busy || !name.trim() || !dob}>
           {busy ? "…" : "Add patient"}
         </button>
+      </div>
+      <div className="welcome-add-hint">
+        Date of birth is required — it distinguishes patients with the same name.
       </div>
 
       <button
@@ -55,15 +66,11 @@ export default function AddPatientForm({ onCreate }: Props) {
         className="welcome-add-toggle"
         onClick={() => setShowDetails((v) => !v)}
       >
-        {showDetails ? "− Hide details" : "+ Add details (optional)"}
+        {showDetails ? "− Hide details" : "+ Add contact details (optional)"}
       </button>
 
       {showDetails && (
         <div className="welcome-add-details">
-          <label>
-            <span>Date of birth</span>
-            <input type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
-          </label>
           <label>
             <span>Sex</span>
             <select value={sex} onChange={(e) => setSex(e.target.value)}>

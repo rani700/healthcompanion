@@ -26,7 +26,8 @@ def client(tmp_path, monkeypatch):
 def _signup(client, email, role, name="Test User", pw="secret123"):
     r = client.post(
         "/auth/signup",
-        json={"email": email, "password": pw, "name": name, "role": role},
+        json={"email": email, "password": pw, "name": name, "role": role,
+              "dob": "1990-01-01"},
     )
     assert r.status_code == 200, r.text
     return r.json()
@@ -72,7 +73,8 @@ def test_doctor_sees_all_patient_sees_self(client):
     doc = _signup(client, "doc@x.com", "doctor")
     dtok = doc["token"]
     # Doctor creates an extra bare patient.
-    client.post("/patients", json={"name": "Walk-in"}, headers={"Authorization": f"Bearer {dtok}"})
+    client.post("/patients", json={"name": "Walk-in", "dob": "1980-02-02"},
+                headers={"Authorization": f"Bearer {dtok}"})
 
     pat = _signup(client, "pat@x.com", "patient", name="Pat")
     ptok = pat["token"]
@@ -89,7 +91,8 @@ def test_patient_cannot_access_other_patient(client):
     doc = _signup(client, "doc2@x.com", "doctor")
     dtok = doc["token"]
     other = client.post(
-        "/patients", json={"name": "Other"}, headers={"Authorization": f"Bearer {dtok}"}
+        "/patients", json={"name": "Other", "dob": "1975-06-06"},
+        headers={"Authorization": f"Bearer {dtok}"}
     ).json()
 
     pat = _signup(client, "pat2@x.com", "patient")

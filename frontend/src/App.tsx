@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import {
   api,
   AuthExpired,
+  type CareTeamMember,
   type Document,
   type NewPatient,
   type Patient,
   type Scope,
+  type Visit,
 } from "./api";
 import { useAuth } from "./auth";
 import Login from "./components/Login";
@@ -14,6 +16,7 @@ import DocumentsPanel from "./components/DocumentsPanel";
 import AskPanel, { type Message } from "./components/AskPanel";
 import PatientSummary from "./components/PatientSummary";
 import AddPatientForm from "./components/AddPatientForm";
+import VisitsPanel from "./components/VisitsPanel";
 
 export default function App() {
   const { user, ready, logout } = useAuth();
@@ -22,6 +25,8 @@ export default function App() {
   const [scope, setScope] = useState<Scope>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [visits, setVisits] = useState<Visit[]>([]);
+  const [careTeam, setCareTeam] = useState<CareTeamMember[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,11 +65,20 @@ export default function App() {
     [handle],
   );
 
+  const loadVisits = useCallback(
+    (id: string) => {
+      api.listVisits(id).then(setVisits).catch(handle);
+      api.careTeam(id).then(setCareTeam).catch(handle);
+    },
+    [handle],
+  );
+
   useEffect(() => {
     if (!selectedId) return;
     setMessages([]);
     loadDocuments(selectedId);
-  }, [selectedId, loadDocuments]);
+    loadVisits(selectedId);
+  }, [selectedId, loadDocuments, loadVisits]);
 
   // --- actions --------------------------------------------------------------
   async function createPatient(payload: NewPatient) {
@@ -77,18 +91,44 @@ export default function App() {
     }
   }
 
-  async function upload(file: File, docType: string, docDate: string) {
+  async function upload(
+    file: File,
+    docType: string,
+    docDate: string,
+    visitId: string,
+  ) {
     if (!selectedId) return;
     setUploading(true);
     setError(null);
     try {
-      await api.uploadDocument(selectedId, file, docType, docDate);
+      await api.uploadDocument(selectedId, file, docType, docDate, visitId);
       loadDocuments(selectedId);
+      loadVisits(selectedId); // visit doc-counts changed
       setDocVersion((v) => v + 1); // records changed -> refresh summary
     } catch (e) {
       handle(e);
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function createVisit(title: string) {
+    if (!selectedId) return;
+    try {
+      await api.createVisit(selectedId, title);
+      loadVisits(selectedId);
+    } catch (e) {
+      handle(e);
+    }
+  }
+
+  async function closeVisit(visitId: string) {
+    if (!selectedId) return;
+    try {
+      await api.closeVisit(visitId);
+      loadVisits(selectedId);
+    } catch (e) {
+      handle(e);
     }
   }
 
@@ -184,8 +224,20 @@ export default function App() {
               }
             />
 
+            <VisitsPanel
+              visits={visits}
+              careTeam={careTeam}
+              onCreate={createVisit}
+              onClose={closeVisit}
+            />
+
             <div className="workspace">
-              <DocumentsPanel documents={documents} busy={uploading} onUpload={upload} />
+              <DocumentsPanel
+                documents={documents}
+                visits={visits}
+                busy={uploading}
+                onUpload={upload}
+              />
               <AskPanel
                 messages={messages}
                 role={user.role}

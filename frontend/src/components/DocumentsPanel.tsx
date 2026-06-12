@@ -1,10 +1,16 @@
 import { useRef, useState } from "react";
-import type { Document } from "../api";
+import type { Document, Visit } from "../api";
 
 type Props = {
   documents: Document[];
+  visits: Visit[];
   busy: boolean;
-  onUpload: (file: File, docType: string, docDate: string) => Promise<void>;
+  onUpload: (
+    file: File,
+    docType: string,
+    docDate: string,
+    visitId: string,
+  ) => Promise<void>;
 };
 
 const DOC_TYPES = [
@@ -21,17 +27,27 @@ const TYPE_GLYPH: Record<string, string> = {
   other: "▤",
 };
 
-export default function DocumentsPanel({ documents, busy, onUpload }: Props) {
+export default function DocumentsPanel({
+  documents,
+  visits,
+  busy,
+  onUpload,
+}: Props) {
   const [docType, setDocType] = useState("rx");
   const [docDate, setDocDate] = useState("");
+  const [visitId, setVisitId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const openVisits = visits.filter((v) => v.status === "open");
+  const visitTitle = (id: string | null) =>
+    id ? visits.find((v) => v.id === id)?.title : null;
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) return;
-    await onUpload(file, docType, docDate);
+    await onUpload(file, docType, docDate, visitId);
     setFile(null);
     setDocDate("");
     if (inputRef.current) inputRef.current.value = "";
@@ -94,6 +110,19 @@ export default function DocumentsPanel({ documents, busy, onUpload }: Props) {
             {busy ? "Reading…" : "Ingest"}
           </button>
         </div>
+        <select
+          className="visit-select"
+          value={visitId}
+          onChange={(e) => setVisitId(e.target.value)}
+          aria-label="Attach to visit"
+        >
+          <option value="">General (no visit)</option>
+          {openVisits.map((v) => (
+            <option key={v.id} value={v.id}>
+              Visit: {v.title}
+            </option>
+          ))}
+        </select>
       </form>
 
       <ul className="doc-list">
@@ -103,7 +132,8 @@ export default function DocumentsPanel({ documents, busy, onUpload }: Props) {
             <span className="doc-meta">
               <span className="doc-name">{d.filename}</span>
               <span className="doc-sub">
-                {d.doc_type} · {d.doc_date || "undated"} · {d.n_chunks} chunks
+                {d.doc_type} · {d.doc_date || "undated"}
+                {visitTitle(d.visit_id) ? ` · ${visitTitle(d.visit_id)}` : ""}
               </span>
             </span>
           </li>

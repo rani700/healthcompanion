@@ -34,6 +34,7 @@ export default function Sidebar({
   onHome,
 }: Props) {
   const [name, setName] = useState("");
+  const [dob, setDob] = useState("");
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
   const isDoctor = user.role === "doctor";
@@ -48,11 +49,12 @@ export default function Sidebar({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed || !dob) return;
     setAdding(true);
     try {
-      await onCreate({ name: trimmed });
+      await onCreate({ name: trimmed, dob });
       setName("");
+      setDob("");
     } finally {
       setAdding(false);
     }
@@ -154,9 +156,18 @@ export default function Sidebar({
               placeholder="New patient name"
               aria-label="New patient name"
             />
-            <button type="submit" disabled={adding || !name.trim()}>
-              {adding ? "…" : "Add"}
-            </button>
+            <div className="add-patient-row">
+              <input
+                type="date"
+                value={dob}
+                onChange={(e) => setDob(e.target.value)}
+                aria-label="Date of birth (required)"
+                title="Date of birth (required)"
+              />
+              <button type="submit" disabled={adding || !name.trim() || !dob}>
+                {adding ? "…" : "Add"}
+              </button>
+            </div>
           </form>
         )}
       </div>

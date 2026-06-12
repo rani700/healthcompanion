@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS documents (
     doc_type    TEXT,
     doc_date    TEXT,
     ingested_at TEXT NOT NULL,
-    n_chunks    INTEGER NOT NULL
+    n_chunks    INTEGER NOT NULL,
+    visit_id    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_documents_patient ON documents(patient_id);
 CREATE TABLE IF NOT EXISTS care_relationships (
@@ -39,6 +40,17 @@ CREATE TABLE IF NOT EXISTS care_relationships (
     created_at  TEXT NOT NULL,
     PRIMARY KEY (doctor_id, patient_id)
 );
+CREATE TABLE IF NOT EXISTS visits (
+    id          TEXT PRIMARY KEY,
+    patient_id  TEXT NOT NULL,
+    doctor_id   TEXT,
+    doctor_name TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'open',
+    started_at  TEXT NOT NULL,
+    closed_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_visits_patient ON visits(patient_id);
 """
 
 # Columns added after the first release; back-filled on connect.
@@ -50,11 +62,14 @@ def _now() -> str:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Add any patient columns missing from an older database."""
-    existing = {r[1] for r in conn.execute("PRAGMA table_info(patients)")}
+    """Add any columns missing from an older database."""
+    pcols = {r[1] for r in conn.execute("PRAGMA table_info(patients)")}
     for col in _PATIENT_EXTRA_COLS:
-        if col not in existing:
+        if col not in pcols:
             conn.execute(f"ALTER TABLE patients ADD COLUMN {col} TEXT")
+    dcols = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
+    if "visit_id" not in dcols:
+        conn.execute("ALTER TABLE documents ADD COLUMN visit_id TEXT")
 
 
 def _connect() -> sqlite3.Connection:
@@ -170,6 +185,64 @@ def set_cached_summary(patient_id: str, summary: str, sig: str) -> None:
         )
 
 
+# --- visits / episodes of care ----------------------------------------------
+def create_visit(
+    patient_id: str, title: str, doctor_id: str | None, doctor_name: str
+) -> dict[str, Any]:
+    """Open a new visit (episode of care) for a patient."""
+    vid = uuid.uuid4().hex[:12]
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO visits "
+            "(id, patient_id, doctor_id, doctor_name, title, status, started_at) "
+            "VALUES (?, ?, ?, ?, ?, 'open', ?)",
+            (vid, patient_id, doctor_id, doctor_name, title, _now()),
+        )
+    return get_visit(vid)
+
+
+def get_visit(visit_id: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM visits WHERE id = ?", (visit_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_visits(patient_id: str) -> list[dict[str, Any]]:
+    """Visits for a patient, newest first, each with its document count."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT v.*, "
+            "(SELECT COUNT(*) FROM documents d WHERE d.visit_id = v.id) AS n_docs "
+            "FROM visits v WHERE v.patient_id = ? "
+            "ORDER BY v.started_at DESC",
+            (patient_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_visit_status(visit_id: str, status: str) -> dict[str, Any] | None:
+    closed_at = _now() if status == "closed" else None
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE visits SET status = ?, closed_at = ? WHERE id = ?",
+            (status, closed_at, visit_id),
+        )
+    return get_visit(visit_id)
+
+
+def list_care_team(patient_id: str) -> list[dict[str, Any]]:
+    """Doctors who have treated this patient (derived from visits)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT doctor_id, doctor_name, COUNT(*) AS visits, "
+            "MAX(started_at) AS last_seen "
+            "FROM visits WHERE patient_id = ? AND doctor_id IS NOT NULL "
+            "GROUP BY doctor_id, doctor_name ORDER BY last_seen DESC",
+            (patient_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def add_document(
     patient_id: str,
     filename: str,
@@ -177,19 +250,20 @@ def add_document(
     doc_date: str | None,
     n_chunks: int,
     doc_id: str | None = None,
+    visit_id: str | None = None,
 ) -> str:
     """Record an ingested document and return its id.
 
     Pass ``doc_id`` to use a pre-allocated id (so it matches the vector-store
-    chunk ids); otherwise one is generated.
+    chunk ids); otherwise one is generated. ``visit_id`` ties it to a visit.
     """
     doc_id = doc_id or uuid.uuid4().hex[:12]
     with _connect() as conn:
         conn.execute(
             "INSERT INTO documents "
-            "(id, patient_id, filename, doc_type, doc_date, ingested_at, n_chunks) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (doc_id, patient_id, filename, doc_type, doc_date, _now(), n_chunks),
+            "(id, patient_id, filename, doc_type, doc_date, ingested_at, n_chunks, visit_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (doc_id, patient_id, filename, doc_type, doc_date, _now(), n_chunks, visit_id),
         )
     return doc_id
 
