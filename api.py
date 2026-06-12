@@ -113,6 +113,26 @@ def _link_if_doctor(user: dict, patient_id: str) -> None:
         patients.link_doctor_patient(user["id"], patient_id)
 
 
+def _gemini_guard(fn):
+    """Run a Gemini-backed call, turning provider errors into clean HTTP errors."""
+    try:
+        return fn()
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        msg = str(e)
+        if "RESOURCE_EXHAUSTED" in msg or "429" in msg or "quota" in msg.lower():
+            raise HTTPException(
+                status_code=503,
+                detail="The AI is rate-limited right now (Gemini quota reached). "
+                "Please try again in a minute.",
+            )
+        raise HTTPException(
+            status_code=502,
+            detail="The AI service had a problem. Please try again.",
+        )
+
+
 # --- Auth dependencies -------------------------------------------------------
 def current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
     try:
@@ -232,7 +252,7 @@ def patient_summary(
 ):
     _authorize_patient(user, patient_id)
     _link_if_doctor(user, patient_id)
-    return rag_summarize(patient_id, refresh=refresh)
+    return _gemini_guard(lambda: rag_summarize(patient_id, refresh=refresh))
 
 
 @app.get("/patients/{patient_id}/care-team")
@@ -286,7 +306,7 @@ def visit_summary(visit_id: str, user: dict = Depends(current_user)):
     if visit is None:
         raise HTTPException(status_code=404, detail="Visit not found")
     _authorize_patient(user, visit["patient_id"])
-    return rag_summarize_visit(visit["patient_id"], visit_id)
+    return _gemini_guard(lambda: rag_summarize_visit(visit["patient_id"], visit_id))
 
 
 @app.get("/patients/{patient_id}/documents")
@@ -349,7 +369,15 @@ def upload_document(
         dest.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        dest.unlink(missing_ok=True)
+        msg = str(e)
+        if "RESOURCE_EXHAUSTED" in msg or "429" in msg or "quota" in msg.lower():
+            raise HTTPException(
+                status_code=503,
+                detail="The AI is rate-limited right now (Gemini quota reached). "
+                "Please try again in a minute.",
+            )
+        raise HTTPException(status_code=422, detail=msg)
 
 
 @app.post("/patients/{patient_id}/ask")
@@ -357,7 +385,9 @@ def ask(patient_id: str, body: AskRequest, user: dict = Depends(current_user)):
     _authorize_patient(user, patient_id)
     _link_if_doctor(user, patient_id)
     # Answer style follows the caller's role; optionally scoped to one visit.
-    return rag_ask(patient_id, body.question, role=user["role"], visit_id=body.visit_id)
+    return _gemini_guard(
+        lambda: rag_ask(patient_id, body.question, role=user["role"], visit_id=body.visit_id)
+    )
 
 
 # --- Static frontend (production single-container) ---------------------------
