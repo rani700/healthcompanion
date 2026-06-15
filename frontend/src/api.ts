@@ -240,10 +240,19 @@ export const api = {
   listDoctors() {
     return request<Doctor[]>("/doctors");
   },
-  ask(patientId: string, question: string, visitId?: string) {
+  ask(
+    patientId: string,
+    question: string,
+    visitId?: string,
+    history?: { role: string; text: string }[],
+  ) {
     return request<AskResult>(
       `/patients/${patientId}/ask`,
-      jsonBody("POST", { question, visit_id: visitId ?? null }),
+      jsonBody("POST", {
+        question,
+        visit_id: visitId ?? null,
+        history: history ?? null,
+      }),
     );
   },
 };

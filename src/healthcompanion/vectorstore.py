@@ -9,6 +9,7 @@ We supply our own Gemini embeddings (Chroma's default embedder is disabled).
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import chromadb
@@ -16,6 +17,36 @@ import chromadb
 import config
 
 _client = None
+
+
+def _cosine(a, b) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def _mmr_select(query_emb, cands: list[dict], k: int, lam: float) -> list[dict]:
+    """Maximal Marginal Relevance: pick k candidates balancing relevance to the
+    query against diversity from already-picked ones."""
+    rel = [_cosine(query_emb, c["embedding"]) for c in cands]
+    selected: list[int] = []
+    remaining = list(range(len(cands)))
+    while remaining and len(selected) < k:
+        best_i, best_score = remaining[0], -1e9
+        for i in remaining:
+            if not selected:
+                score = rel[i]
+            else:
+                max_sim = max(
+                    _cosine(cands[i]["embedding"], cands[j]["embedding"]) for j in selected
+                )
+                score = lam * rel[i] - (1 - lam) * max_sim
+            if score > best_score:
+                best_score, best_i = score, i
+        selected.append(best_i)
+        remaining.remove(best_i)
+    return [cands[i] for i in selected]
 
 
 def _get_client():
@@ -139,9 +170,11 @@ def query(
     of dicts with ``text``, ``doc_type``, ``doc_date``, ``filename``, ``distance``.
     """
     col = _collection(patient_id)
-    n = min(top_k, col.count())
-    if n == 0:
+    count = col.count()
+    if count == 0:
         return []
+    # Over-fetch candidates, then MMR-select top_k for diversity.
+    n = min(max(config.RAG_CANDIDATES, top_k), count)
     # Always constrain to the patient; AND the visit when scoping (defense-in-depth).
     if visit_id:
         where = {"$and": [{"patient_id": patient_id}, {"visit_id": visit_id}]}
@@ -151,19 +184,25 @@ def query(
         query_embeddings=[query_embedding],
         n_results=n,
         where=where,
-        include=["documents", "metadatas", "distances"],
+        include=["documents", "metadatas", "distances", "embeddings"],
     )
     docs = res["documents"][0]
     metas = res["metadatas"][0]
     dists = res["distances"][0]
-    return [
+    embs = res["embeddings"][0]
+    cands = [
         {
             "text": doc,
-            "doc_id": meta.get("doc_id", ""),
-            "doc_type": meta.get("doc_type", ""),
-            "doc_date": meta.get("doc_date", ""),
-            "filename": meta.get("filename", ""),
+            "doc_id": (meta or {}).get("doc_id", ""),
+            "doc_type": (meta or {}).get("doc_type", ""),
+            "doc_date": (meta or {}).get("doc_date", ""),
+            "filename": (meta or {}).get("filename", ""),
             "distance": dist,
+            "embedding": list(emb),
         }
-        for doc, meta, dist in zip(docs, metas, dists)
+        for doc, meta, dist, emb in zip(docs, metas, dists, embs)
     ]
+    selected = _mmr_select(query_embedding, cands, top_k, config.RAG_MMR_LAMBDA)
+    for c in selected:
+        c.pop("embedding", None)  # not needed downstream
+    return selected

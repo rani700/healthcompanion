@@ -51,36 +51,53 @@ def _build_context(hits: list[dict[str, Any]]) -> str:
     return "\n\n".join(blocks)
 
 
+_NOT_FOUND = "I couldn't find that in your records."
+
+
 def ask(
     patient_id: str,
     question: str,
     role: str = "patient",
     top_k: int = config.TOP_K,
     visit_id: str | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Answer a question about one patient's records.
 
-    Pass ``visit_id`` to restrict the answer to a single visit's documents.
+    Pass ``visit_id`` to restrict the answer to a single visit's documents, and
+    ``history`` (recent {role, text} turns, never stored) to support follow-ups.
     Returns {answer, sources, used_chunks}. Raises if the patient is unknown.
     """
     if patients.get_patient(patient_id) is None:
         raise ValueError(f"Unknown patient: {patient_id}")
 
     role = role if role in _ROLE_GUIDANCE else "patient"
+    history = (history or [])[-config.RAG_HISTORY_TURNS:]
 
-    q_vec = embed_query(question)
+    # Contextualize the retrieval query with the previous user turn so follow-ups
+    # like "what's the dosage?" still retrieve the right chunks.
+    prev_user = next((m["text"] for m in reversed(history) if m.get("role") == "user"), "")
+    retrieval_text = f"{prev_user} {question}".strip() if prev_user else question
+
+    q_vec = embed_query(retrieval_text)
     hits = vectorstore.query(patient_id, q_vec, top_k=top_k, visit_id=visit_id)
 
-    if not hits:
-        return {
-            "answer": "I couldn't find that in your records.",
-            "sources": [],
-            "used_chunks": 0,
-        }
+    # Nothing stored, or even the closest chunk is too far -> honest not-found.
+    if not hits or min(h["distance"] for h in hits) > config.RAG_MAX_DISTANCE:
+        return {"answer": _NOT_FOUND, "sources": [], "used_chunks": 0}
 
     system = _SYSTEM_TEMPLATE.format(
         role_guidance=_ROLE_GUIDANCE[role],
         context=_build_context(hits),
+    )
+
+    convo = "".join(
+        f"{'User' if m.get('role') == 'user' else 'Assistant'}: {m.get('text','')}\n"
+        for m in history
+    )
+    user_content = (
+        (f"Earlier in this conversation:\n{convo}\n" if convo else "")
+        + f"Question: {question}"
     )
 
     client = get_client()
@@ -89,7 +106,7 @@ def ask(
     response = call_with_retry(
         lambda: client.models.generate_content(
             model=config.MODEL_GEN,
-            contents=question,
+            contents=user_content,
             config=types.GenerateContentConfig(
                 system_instruction=system,
                 temperature=0.2,
@@ -97,10 +114,9 @@ def ask(
         )
     )
 
-    sources = _dedupe_sources(hits)
     return {
         "answer": (response.text or "").strip(),
-        "sources": sources,
+        "sources": _dedupe_sources(hits),
         "used_chunks": len(hits),
     }
 

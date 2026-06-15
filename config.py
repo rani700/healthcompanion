@@ -74,6 +74,16 @@ CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 TOP_K = 5
 
+# Over-fetch this many candidates, then MMR-select TOP_K for diversity so an
+# answer draws from multiple documents/visits rather than near-duplicate chunks.
+RAG_CANDIDATES = int(os.getenv("HC_RAG_CANDIDATES", "20"))
+RAG_MMR_LAMBDA = float(os.getenv("HC_RAG_MMR_LAMBDA", "0.6"))  # relevance vs diversity
+# Backstop: if even the closest chunk is farther than this cosine distance, treat
+# as "not in records" (calibrated ~0.85; the grounded prompt is the primary guard).
+RAG_MAX_DISTANCE = float(os.getenv("HC_RAG_MAX_DISTANCE", "0.85"))
+# Max prior conversation turns to include for follow-up questions.
+RAG_HISTORY_TURNS = int(os.getenv("HC_RAG_HISTORY_TURNS", "6"))
+
 # Inline-bytes ceiling for the Gemini request; above this we use the Files API.
 INLINE_MAX_BYTES = 20 * 1024 * 1024  # 20 MB
 

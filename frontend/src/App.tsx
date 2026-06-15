@@ -171,6 +171,10 @@ export default function App() {
 
   function ask(question: string) {
     if (!selectedId) return;
+    // Recent turns (client-held, never stored server-side) for follow-up context.
+    const history = messages
+      .filter((m) => !m.pending)
+      .map((m) => ({ role: m.role, text: m.text }));
     const userMsg: Message = { id: nextMsgId(), role: "user", text: question };
     const pendingId = nextMsgId();
     setMessages((m) => [
@@ -180,7 +184,7 @@ export default function App() {
     ]);
 
     api
-      .ask(selectedId, question, selectedVisitId ?? undefined)
+      .ask(selectedId, question, selectedVisitId ?? undefined, history)
       .then((res) =>
         setMessages((m) =>
           m.map((msg) =>

@@ -113,6 +113,7 @@ class UpdatePatient(BaseModel):
 class AskRequest(BaseModel):
     question: str
     visit_id: str | None = None
+    history: list[dict[str, str]] | None = None  # recent {role, text} turns; not stored
 
 
 class CreateVisit(BaseModel):
@@ -500,7 +501,10 @@ def ask(patient_id: str, body: AskRequest, user: dict = Depends(current_user)):
     # NOTE: questions/answers are NOT stored — chat is private to this session and
     # is never visible to the other party (doctor or patient).
     return _gemini_guard(
-        lambda: rag_ask(patient_id, body.question, role=user["role"], visit_id=body.visit_id)
+        lambda: rag_ask(
+            patient_id, body.question, role=user["role"],
+            visit_id=body.visit_id, history=body.history,
+        )
     )
 
 

@@ -41,7 +41,11 @@ def ingest_document(
     if not chunks:
         raise RuntimeError(f"No text extracted from {filename}")
 
-    embeddings = embed_documents(chunks)
+    # Embed a small header (type · date · filename) with each chunk so date- and
+    # type-oriented questions ("what was prescribed in 2024?") retrieve better.
+    # The stored chunk text stays clean; only the embedded text carries the header.
+    header = f"[{doc_type} · {doc_date or 'undated'} · {filename}]"
+    embeddings = embed_documents([f"{header}\n{c}" for c in chunks])
 
     # Allocate the doc_id up front so vector ids and the catalog row agree.
     doc_id = uuid.uuid4().hex[:12]
