@@ -69,22 +69,33 @@ def test_unauthenticated_and_bad_token(client):
     assert bad.status_code == 401
 
 
-def test_doctor_sees_all_patient_sees_self(client):
+def test_doctor_sees_only_their_patients(client):
+    # H1: a doctor sees ONLY patients in their care, not everyone.
     doc = _signup(client, "doc@x.com", "doctor")
     dtok = doc["token"]
-    # Doctor creates an extra bare patient.
-    client.post("/patients", json={"name": "Walk-in", "dob": "1980-02-02"},
-                headers={"Authorization": f"Bearer {dtok}"})
+    wid = client.post("/patients", json={"name": "Walk-in", "dob": "1980-02-02"},
+                      headers={"Authorization": f"Bearer {dtok}"}).json()["id"]
 
-    pat = _signup(client, "pat@x.com", "patient", name="Pat")
+    pat = _signup(client, "pat@x.com", "patient", name="Pat")  # unrelated self-signup
     ptok = pat["token"]
 
     doc_list = client.get("/patients", headers={"Authorization": f"Bearer {dtok}"}).json()
     pat_list = client.get("/patients", headers={"Authorization": f"Bearer {ptok}"}).json()
 
-    assert len(doc_list) >= 2  # walk-in + the patient
-    assert len(pat_list) == 1
-    assert pat_list[0]["id"] == pat["user"]["patient_id"]
+    doc_ids = {p["id"] for p in doc_list}
+    assert doc_ids == {wid}  # only the doctor's own patient
+    assert pat["user"]["patient_id"] not in doc_ids  # NOT the unrelated patient
+    assert len(pat_list) == 1 and pat_list[0]["id"] == pat["user"]["patient_id"]
+
+
+def test_doctor_cannot_access_unrelated_patient(client):
+    d1 = _signup(client, "d1@x.com", "doctor")["token"]
+    d2 = _signup(client, "d2@x.com", "doctor")["token"]
+    pid = client.post("/patients", json={"name": "P", "dob": "1980-01-01"},
+                      headers={"Authorization": f"Bearer {d1}"}).json()["id"]
+    # d2 has no care relationship -> 403
+    r = client.get(f"/patients/{pid}", headers={"Authorization": f"Bearer {d2}"})
+    assert r.status_code == 403
 
 
 def test_patient_cannot_access_other_patient(client):

@@ -51,21 +51,35 @@ def test_login_throttle(client):
     assert blocked.status_code == 429
 
 
-def test_delete_document(client):
+def test_doctor_cannot_delete_document(client):
+    """Doctors can never delete a document, even their own patient's."""
     from healthcompanion import patients
     tok = _doctor(client)
     pid = client.post("/patients", json={"name": "D", "dob": "1980-01-01"},
                       headers=H(tok)).json()["id"]
     doc_id = patients.add_document(pid, "f.png", "rx", "2026-01-01", 1)
-    assert len(client.get(f"/patients/{pid}/documents", headers=H(tok)).json()) == 1
-
     r = client.delete(f"/documents/{doc_id}", headers=H(tok))
+    assert r.status_code == 403
+
+
+def test_patient_deletes_own_recent_upload(client):
+    """A patient can delete their own upload within the window."""
+    from healthcompanion import patients
+    su = client.post("/auth/signup", json={"email": "p@x.com", "password": "secret123",
+                                           "name": "P", "role": "patient",
+                                           "dob": "1990-01-01"}).json()
+    ptok = su["token"]
+    uid = su["user"]["id"]
+    pid = su["user"]["patient_id"]
+    # Document uploaded by this patient just now.
+    doc_id = patients.add_document(pid, "f.png", "rx", "2026-01-01", 1, uploaded_by=uid)
+    r = client.delete(f"/documents/{doc_id}", headers=H(ptok))
     assert r.status_code == 200 and r.json()["deleted"] == doc_id
-    assert client.get(f"/patients/{pid}/documents", headers=H(tok)).json() == []
+    assert client.get(f"/patients/{pid}/documents", headers=H(ptok)).json() == []
 
 
-def test_delete_document_requires_access(client):
-    """A patient cannot delete another patient's document."""
+def test_patient_cannot_delete_someone_elses_document(client):
+    """A patient cannot delete a document in another patient's record."""
     from healthcompanion import patients
     dtok = _doctor(client)
     pid = client.post("/patients", json={"name": "Owner", "dob": "1980-01-01"},

@@ -65,6 +65,7 @@ export type Document = {
   ingested_at: string;
   n_chunks: number;
   visit_id: string | null;
+  uploaded_by: string | null;
 };
 
 export type Visit = {
@@ -169,9 +170,9 @@ export const api = {
     return request<User>("/auth/profile", jsonBody("PATCH", fields));
   },
 
-  // patients
-  listPatients(scope: Scope = "all") {
-    return request<Patient[]>(`/patients?scope=${scope}`);
+  // patients (doctors get only their care patients; patients get themselves)
+  listPatients() {
+    return request<Patient[]>("/patients");
   },
   createPatient(payload: NewPatient) {
     return request<Patient>("/patients", jsonBody("POST", payload));

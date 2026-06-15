@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import type { Document, Visit } from "../api";
+import type { Document, User, Visit } from "../api";
+
+// A patient may delete their own upload only within this window (mirror of the
+// server rule) — used to decide whether to show the delete control.
+const DELETE_WINDOW_MS = 60 * 60 * 1000;
 
 type Props = {
   documents: Document[];
   visits: Visit[];
   activeVisitId: string | null;
   busy: boolean;
+  currentUser: User;
   onUpload: (
     file: File,
     docType: string,
@@ -35,10 +40,16 @@ export default function DocumentsPanel({
   visits,
   activeVisitId,
   busy,
+  currentUser,
   onUpload,
   onMove,
   onDelete,
 }: Props) {
+  // Doctors can never delete; a patient may delete their own recent upload only.
+  const canDelete = (d: Document) =>
+    currentUser.role === "patient" &&
+    d.uploaded_by === currentUser.id &&
+    Date.now() - new Date(d.ingested_at).getTime() < DELETE_WINDOW_MS;
   const [docType, setDocType] = useState("rx");
   const [docDate, setDocDate] = useState("");
   const [visitId, setVisitId] = useState("");
@@ -166,14 +177,16 @@ export default function DocumentsPanel({
                 </option>
               ))}
             </select>
-            <button
-              className="doc-delete"
-              onClick={() => onDelete(d.id)}
-              title="Delete document"
-              aria-label="Delete document"
-            >
-              ✕
-            </button>
+            {canDelete(d) && (
+              <button
+                className="doc-delete"
+                onClick={() => onDelete(d.id)}
+                title="Delete (within 1 hour of upload)"
+                aria-label="Delete document"
+              >
+                ✕
+              </button>
+            )}
           </li>
         ))}
         {documents.length === 0 && (

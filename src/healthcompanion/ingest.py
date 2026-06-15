@@ -19,6 +19,7 @@ def ingest_document(
     doc_type: str = "other",
     doc_date: str | None = None,
     visit_id: str | None = None,
+    uploaded_by: str | None = None,
 ) -> dict[str, Any]:
     """Ingest one document for a patient.
 
@@ -65,6 +66,7 @@ def ingest_document(
             n_chunks=len(chunks),
             doc_id=doc_id,
             visit_id=visit_id,
+            uploaded_by=uploaded_by,
         )
     except Exception:
         vectorstore.delete_doc_chunks(patient_id, doc_id)

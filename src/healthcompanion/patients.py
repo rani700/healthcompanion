@@ -54,7 +54,9 @@ CREATE INDEX IF NOT EXISTS idx_visits_patient ON visits(patient_id);
 """
 
 # Columns added after the first release; back-filled on connect.
-_PATIENT_EXTRA_COLS = ("dob", "sex", "phone", "address", "summary", "summary_sig")
+_PATIENT_EXTRA_COLS = (
+    "dob", "sex", "phone", "address", "summary", "summary_sig", "last_activity_at"
+)
 
 
 def _now() -> str:
@@ -70,6 +72,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
     dcols = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
     if "visit_id" not in dcols:
         conn.execute("ALTER TABLE documents ADD COLUMN visit_id TEXT")
+    if "uploaded_by" not in dcols:
+        conn.execute("ALTER TABLE documents ADD COLUMN uploaded_by TEXT")
+    # Back-fill activity time for pre-existing patients so they aren't treated
+    # as instantly inactive.
+    conn.execute(
+        "UPDATE patients SET last_activity_at = created_at "
+        "WHERE last_activity_at IS NULL"
+    )
 
 
 def _connect() -> sqlite3.Connection:
@@ -93,13 +103,24 @@ def create_patient(
 ) -> str:
     """Create a patient and return its generated id."""
     pid = uuid.uuid4().hex[:12]
+    now = _now()
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO patients (id, name, dob, sex, phone, address, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (pid, name, dob, sex, phone, address, _now()),
+            "INSERT INTO patients "
+            "(id, name, dob, sex, phone, address, created_at, last_activity_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (pid, name, dob, sex, phone, address, now, now),
         )
     return pid
+
+
+def touch_patient(patient_id: str) -> None:
+    """Mark a patient as active now (resets the inactivity clock)."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE patients SET last_activity_at = ? WHERE id = ?",
+            (_now(), patient_id),
+        )
 
 
 def update_patient(patient_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
@@ -123,11 +144,18 @@ def get_patient(patient_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def list_patients() -> list[dict[str, Any]]:
+def list_patients(active_since: str | None = None) -> list[dict[str, Any]]:
+    """List patients; with ``active_since`` (ISO time) exclude inactive ones."""
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM patients ORDER BY created_at"
-        ).fetchall()
+        if active_since:
+            rows = conn.execute(
+                "SELECT * FROM patients "
+                "WHERE COALESCE(last_activity_at, created_at) >= ? "
+                "ORDER BY created_at",
+                (active_since,),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM patients ORDER BY created_at").fetchall()
     return [dict(r) for r in rows]
 
 
@@ -142,16 +170,58 @@ def link_doctor_patient(doctor_id: str, patient_id: str) -> None:
         )
 
 
-def list_patients_for_doctor(doctor_id: str) -> list[dict[str, Any]]:
-    """Patients this doctor is dealing with."""
+def has_care_relationship(doctor_id: str, patient_id: str) -> bool:
+    """True if this doctor is in a care relationship with this patient."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM care_relationships WHERE doctor_id = ? AND patient_id = ?",
+            (doctor_id, patient_id),
+        ).fetchone()
+    return row is not None
+
+
+def list_patients_for_doctor(
+    doctor_id: str, active_since: str | None = None
+) -> list[dict[str, Any]]:
+    """Patients this doctor is dealing with (excluding inactive when filtered)."""
+    sql = (
+        "SELECT p.* FROM patients p "
+        "JOIN care_relationships c ON c.patient_id = p.id "
+        "WHERE c.doctor_id = ? "
+    )
+    params: list[Any] = [doctor_id]
+    if active_since:
+        sql += "AND COALESCE(p.last_activity_at, p.created_at) >= ? "
+        params.append(active_since)
+    sql += "ORDER BY p.created_at"
+    with _connect() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def inactive_unowned_patient_ids(cutoff: str) -> list[str]:
+    """Patients inactive since ``cutoff`` AND with no self-registered account.
+
+    These are safe to purge — no one references them. Self-registered patients
+    (linked to a user) are never returned here.
+    """
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT p.* FROM patients p "
-            "JOIN care_relationships c ON c.patient_id = p.id "
-            "WHERE c.doctor_id = ? ORDER BY p.created_at",
-            (doctor_id,),
+            "SELECT id FROM patients "
+            "WHERE COALESCE(last_activity_at, created_at) < ? "
+            "AND id NOT IN (SELECT patient_id FROM users WHERE patient_id IS NOT NULL)",
+            (cutoff,),
         ).fetchall()
-    return [dict(r) for r in rows]
+    return [r["id"] for r in rows]
+
+
+def delete_patient_cascade(patient_id: str) -> None:
+    """Delete a patient and all their catalog rows (documents, visits, links)."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM documents WHERE patient_id = ?", (patient_id,))
+        conn.execute("DELETE FROM visits WHERE patient_id = ?", (patient_id,))
+        conn.execute("DELETE FROM care_relationships WHERE patient_id = ?", (patient_id,))
+        conn.execute("DELETE FROM patients WHERE id = ?", (patient_id,))
 
 
 # --- cached AI summary ------------------------------------------------------
@@ -260,19 +330,23 @@ def add_document(
     n_chunks: int,
     doc_id: str | None = None,
     visit_id: str | None = None,
+    uploaded_by: str | None = None,
 ) -> str:
     """Record an ingested document and return its id.
 
     Pass ``doc_id`` to use a pre-allocated id (so it matches the vector-store
-    chunk ids); otherwise one is generated. ``visit_id`` ties it to a visit.
+    chunk ids); otherwise one is generated. ``visit_id`` ties it to a visit;
+    ``uploaded_by`` is the user id who uploaded it (for deletion rules).
     """
     doc_id = doc_id or uuid.uuid4().hex[:12]
     with _connect() as conn:
         conn.execute(
             "INSERT INTO documents "
-            "(id, patient_id, filename, doc_type, doc_date, ingested_at, n_chunks, visit_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (doc_id, patient_id, filename, doc_type, doc_date, _now(), n_chunks, visit_id),
+            "(id, patient_id, filename, doc_type, doc_date, ingested_at, n_chunks, "
+            "visit_id, uploaded_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (doc_id, patient_id, filename, doc_type, doc_date, _now(), n_chunks,
+             visit_id, uploaded_by),
         )
     return doc_id
 

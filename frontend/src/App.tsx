@@ -7,7 +7,6 @@ import {
   type Document,
   type NewPatient,
   type Patient,
-  type Scope,
   type Visit,
 } from "./api";
 import { useAuth } from "./auth";
@@ -27,7 +26,6 @@ export default function App() {
   const { user, ready, logout, updateProfile } = useAuth();
 
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [scope, setScope] = useState<Scope>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
@@ -55,7 +53,7 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     api
-      .listPatients(scope)
+      .listPatients()
       .then((ps) => {
         setPatients(ps);
         if (user.role === "patient") {
@@ -63,7 +61,7 @@ export default function App() {
         }
       })
       .catch(handle);
-  }, [user, scope, handle]);
+  }, [user, handle]);
 
   const loadDocuments = useCallback(
     (id: string) => {
@@ -220,8 +218,6 @@ export default function App() {
         user={user}
         patients={patients}
         selectedId={selectedId}
-        scope={scope}
-        onScopeChange={setScope}
         onSelect={setSelectedId}
         onCreate={createPatient}
         onUpdateProfile={updateProfile}
@@ -298,6 +294,7 @@ export default function App() {
                 visits={visits}
                 activeVisitId={selectedVisitId}
                 busy={uploading}
+                currentUser={user}
                 onUpload={upload}
                 onMove={moveDoc}
                 onDelete={deleteDoc}

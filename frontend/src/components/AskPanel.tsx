@@ -121,6 +121,9 @@ export default function AskPanel({ messages, role, disabled, onAsk }: Props) {
           Ask
         </button>
       </form>
+      <div className="composer-note">
+        🔒 Private — your questions aren't saved or shared with anyone.
+      </div>
     </section>
   );
 }

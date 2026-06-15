@@ -64,6 +64,14 @@ def add_chunks(
     return len(chunks)
 
 
+def delete_collection(patient_id: str) -> None:
+    """Drop a patient's entire vector collection (used when purging a patient)."""
+    try:
+        _get_client().delete_collection(name=f"patient_{patient_id}")
+    except Exception:
+        pass  # already gone / never created
+
+
 def delete_doc_chunks(patient_id: str, doc_id: str) -> int:
     """Remove all of a document's chunks from the patient's collection."""
     col = _collection(patient_id)

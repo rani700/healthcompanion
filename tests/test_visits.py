@@ -44,33 +44,37 @@ def test_patient_signup_requires_dob(client):
 
 
 def test_visit_lifecycle_and_attribution(client):
+    # H1-compatible multi-doctor flow: a self-registered patient brings in each
+    # doctor by requesting them (which establishes the care relationship).
     da = _doctor(client, "a@x.com", "Dr A")
-    db = _doctor(client, "b@x.com", "Dr B")
-    pid = client.post("/patients", json={"name": "Ravi", "dob": "1972-03-04"},
-                      headers=H(da)).json()["id"]
+    _doctor(client, "b@x.com", "Dr B")
+    r = client.post("/auth/signup", json={"email": "pv@x.com", "password": "secret123",
+                                          "name": "PV", "role": "patient", "dob": "1972-03-04"})
+    ptok = r.json()["token"]
+    pid = r.json()["user"]["patient_id"]
+    docs = {d["name"]: d["id"] for d in client.get("/doctors", headers=H(ptok)).json()}
 
-    # Dr A opens a visit
-    v1 = client.post(f"/patients/{pid}/visits", json={"title": "Fever and cough"},
-                     headers=H(da)).json()
+    # Patient requests Dr A, then later Dr B (different issue).
+    v1 = client.post(f"/patients/{pid}/visits",
+                     json={"title": "Fever and cough", "doctor_id": docs["Dr A"]},
+                     headers=H(ptok)).json()
     assert v1["doctor_name"] == "Dr A" and v1["status"] == "open"
-
-    # Later, Dr B opens another visit for a different issue
-    v2 = client.post(f"/patients/{pid}/visits", json={"title": "Knee pain"},
-                     headers=H(db)).json()
+    v2 = client.post(f"/patients/{pid}/visits",
+                     json={"title": "Knee pain", "doctor_id": docs["Dr B"]},
+                     headers=H(ptok)).json()
     assert v2["doctor_name"] == "Dr B"
 
-    # Timeline shows both, newest first
-    visits = client.get(f"/patients/{pid}/visits", headers=H(da)).json()
+    # Timeline shows both, newest first.
+    visits = client.get(f"/patients/{pid}/visits", headers=H(ptok)).json()
     assert [v["title"] for v in visits] == ["Knee pain", "Fever and cough"]
 
-    # Close one
+    # Dr A is now in the patient's care and can close their visit.
     closed = client.post(f"/visits/{v1['id']}/close", headers=H(da)).json()
     assert closed["status"] == "closed" and closed["closed_at"]
 
-    # Care team = both doctors
-    team = client.get(f"/patients/{pid}/care-team", headers=H(da)).json()
-    names = {d["doctor_name"] for d in team}
-    assert names == {"Dr A", "Dr B"}
+    # Care team = both doctors.
+    team = client.get(f"/patients/{pid}/care-team", headers=H(ptok)).json()
+    assert {d["doctor_name"] for d in team} == {"Dr A", "Dr B"}
 
 
 def test_doctor_profile_signup_and_edit(client):

@@ -58,6 +58,17 @@ GUARDRAIL_STRICT = os.getenv("HC_GUARDRAIL_STRICT", "false").lower() in ("1", "t
 LOGIN_MAX_ATTEMPTS = int(os.getenv("HC_LOGIN_MAX_ATTEMPTS", "8"))
 LOGIN_WINDOW_SECONDS = int(os.getenv("HC_LOGIN_WINDOW_SECONDS", "300"))
 
+# --- Retention ---------------------------------------------------------------
+# Patients with no activity for this many days drop out of doctors' views;
+# those with no self-registered account are then purged. Self-registered
+# patients always keep their account and history.
+RETENTION_DAYS = int(os.getenv("HC_RETENTION_DAYS", "730"))  # ~2 years
+
+# --- Document deletion -------------------------------------------------------
+# A patient may delete their OWN upload only within this window (accidental
+# upload). Doctors can never delete documents.
+DOC_DELETE_WINDOW_SECONDS = int(os.getenv("HC_DOC_DELETE_WINDOW_SECONDS", "3600"))
+
 # --- Retrieval / chunking ----------------------------------------------------
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200

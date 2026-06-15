@@ -1165,6 +1165,12 @@ button:disabled {
 .composer input {
   flex: 1;
 }
+.composer-note {
+  padding: 0 16px 12px;
+  font-size: 11.5px;
+  color: var(--ink-mute);
+  text-align: center;
+}
 
 /* ---------- Welcome ---------- */
 .welcome {

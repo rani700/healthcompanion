@@ -1,27 +1,25 @@
 """FastAPI over the RAG core, with authentication and access control.
 
 Auth model:
-  - Doctor users can access every patient.
-  - Patient users can access only their own linked patient record.
+  - Doctors access ONLY patients they have a care relationship with (created the
+    record, or the patient requested them). They never see other patients.
+  - Patients access only their own linked record.
+  - Chat (ask) is never stored: neither party can see the other's chatbot history;
+    they share only uploaded documents.
+  - Doctors can never delete documents; a patient may delete their OWN upload only
+    within a short window (accidental upload).
 
     uvicorn api:app --reload
-
-Routes:
-    POST /auth/signup               -> create account (+ token)
-    POST /auth/login                -> obtain token
-    GET  /auth/me                   -> current user
-    GET  /patients                  -> doctors: all; patients: self only
-    POST /patients                  -> doctors only (create a bare patient record)
-    POST /patients/{id}/documents   -> upload + ingest (multipart)
-    GET  /patients/{id}/documents   -> list documents
-    POST /patients/{id}/ask         -> grounded question (answer style follows role)
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Make the src/ package importable.
@@ -29,11 +27,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 import config
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
-from healthcompanion import auth, patients, vectorstore
+from healthcompanion import auth, patients, retention, vectorstore
 from healthcompanion.guardrails import NotMedicalDocument
 from healthcompanion.ingest import ingest_document
 from healthcompanion.rag import ask as rag_ask
@@ -41,7 +40,22 @@ from healthcompanion.rag import summarize_patient as rag_summarize
 from healthcompanion.rag import summarize_visit as rag_summarize_visit
 from healthcompanion.security import create_token, decode_token
 
-app = FastAPI(title="HealthCompanion", version="0.3.0")
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Daily retention sweep: purge inactive patients with no self-account.
+    async def _loop():
+        while True:
+            with contextlib.suppress(Exception):
+                await run_in_threadpool(retention.purge_inactive)
+            await asyncio.sleep(24 * 3600)
+
+    task = asyncio.create_task(_loop())
+    yield
+    task.cancel()
+
+
+app = FastAPI(title="HealthCompanion", version="0.4.0", lifespan=lifespan)
 
 # Fail fast if deployed to production without a real JWT secret.
 config.assert_secure_for_production()
@@ -155,13 +169,21 @@ def require_doctor(user: dict = Depends(current_user)) -> dict:
 
 
 def _authorize_patient(user: dict, patient_id: str) -> None:
-    """Doctors may access anyone; patients only their own record."""
+    """Patients access only their own record; doctors only patients they have a
+    care relationship with (created or were requested by)."""
     if patients.get_patient(patient_id) is None:
         raise HTTPException(status_code=404, detail="Patient not found")
     if user["role"] == "doctor":
-        return
+        if patients.has_care_relationship(user["id"], patient_id):
+            return
+        raise HTTPException(status_code=403, detail="This patient is not in your care.")
     if user.get("patient_id") != patient_id:
         raise HTTPException(status_code=403, detail="You can only access your own records.")
+
+
+def _touch(patient_id: str) -> None:
+    """Record activity on a patient (resets the inactivity/retention clock)."""
+    patients.touch_patient(patient_id)
 
 
 def _token_response(user: dict) -> dict:
@@ -239,11 +261,12 @@ def list_doctors(user: dict = Depends(current_user)):
 
 # --- Patient routes ----------------------------------------------------------
 @app.get("/patients")
-def list_patients(scope: str = "all", user: dict = Depends(current_user)):
+def list_patients(user: dict = Depends(current_user)):
     if user["role"] == "doctor":
-        if scope == "mine":
-            return patients.list_patients_for_doctor(user["id"])
-        return patients.list_patients()
+        # Only this doctor's patients, and only those active within retention.
+        return patients.list_patients_for_doctor(
+            user["id"], active_since=retention.active_since()
+        )
     # Patients see only themselves.
     p = patients.get_patient(user.get("patient_id") or "")
     return [p] if p else []
@@ -266,7 +289,7 @@ def create_patient(body: CreatePatient, user: dict = Depends(require_doctor)):
 @app.get("/patients/{patient_id}")
 def get_patient(patient_id: str, user: dict = Depends(current_user)):
     _authorize_patient(user, patient_id)
-    _link_if_doctor(user, patient_id)
+    _touch(patient_id)
     return patients.get_patient(patient_id)
 
 
@@ -275,6 +298,7 @@ def update_patient(
     patient_id: str, body: UpdatePatient, user: dict = Depends(current_user)
 ):
     _authorize_patient(user, patient_id)
+    _touch(patient_id)
     return patients.update_patient(patient_id, body.model_dump(exclude_none=True))
 
 
@@ -283,7 +307,6 @@ def patient_summary(
     patient_id: str, refresh: bool = False, user: dict = Depends(current_user)
 ):
     _authorize_patient(user, patient_id)
-    _link_if_doctor(user, patient_id)
     return _gemini_guard(lambda: rag_summarize(patient_id, refresh=refresh))
 
 
@@ -306,6 +329,7 @@ def create_visit(
     patient_id: str, body: CreateVisit, user: dict = Depends(current_user)
 ):
     _authorize_patient(user, patient_id)
+    _touch(patient_id)
     if not body.title.strip():
         raise HTTPException(status_code=400, detail="A reason for the visit is required.")
     if user["role"] == "doctor":
@@ -329,6 +353,7 @@ def close_visit(visit_id: str, user: dict = Depends(current_user)):
     if visit is None:
         raise HTTPException(status_code=404, detail="Visit not found")
     _authorize_patient(user, visit["patient_id"])
+    _touch(visit["patient_id"])
     return patients.set_visit_status(visit_id, "closed")
 
 
@@ -362,6 +387,7 @@ def move_document(doc_id: str, body: MoveDoc, user: dict = Depends(current_user)
         if visit is None or visit["patient_id"] != doc["patient_id"]:
             raise HTTPException(status_code=400, detail="Visit not found for this patient.")
     old_vid = doc.get("visit_id")
+    _touch(doc["patient_id"])
     patients.set_document_visit(doc_id, vid)
     try:
         vectorstore.update_doc_visit(doc["patient_id"], doc_id, vid)
@@ -374,11 +400,34 @@ def move_document(doc_id: str, body: MoveDoc, user: dict = Depends(current_user)
 
 @app.delete("/documents/{doc_id}")
 def delete_document(doc_id: str, user: dict = Depends(current_user)):
-    """Delete a document (catalog row + its vector chunks)."""
+    """Delete a document. Doctors can NEVER delete; a patient may delete their
+    OWN upload only within DOC_DELETE_WINDOW_SECONDS (accidental upload)."""
     doc = patients.get_document(doc_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     _authorize_patient(user, doc["patient_id"])
+
+    if user["role"] == "doctor":
+        raise HTTPException(
+            status_code=403,
+            detail="Documents are part of the medical record and can't be deleted by a doctor.",
+        )
+    # Patient: only their own upload, and only within the time window.
+    if doc.get("uploaded_by") != user["id"]:
+        raise HTTPException(status_code=403, detail="You can only delete documents you uploaded.")
+    ingested = doc.get("ingested_at") or ""
+    try:
+        ts = datetime.fromisoformat(ingested)
+        age = (datetime.now(timezone.utc) - ts).total_seconds()
+    except Exception:
+        age = config.DOC_DELETE_WINDOW_SECONDS + 1  # unparseable -> treat as expired
+    if age > config.DOC_DELETE_WINDOW_SECONDS:
+        mins = config.DOC_DELETE_WINDOW_SECONDS // 60
+        raise HTTPException(
+            status_code=403,
+            detail=f"This document can no longer be deleted (only within {mins} minutes of upload).",
+        )
+
     vectorstore.delete_doc_chunks(doc["patient_id"], doc_id)
     patients.delete_document(doc_id)
     return {"deleted": doc_id}
@@ -398,6 +447,7 @@ def upload_document(
     # stall health probes and every other request.
     _authorize_patient(user, patient_id)
     _link_if_doctor(user, patient_id)
+    _touch(patient_id)
     config.ensure_dirs()
 
     safe_name = Path(file.filename or "upload").name
@@ -424,7 +474,8 @@ def upload_document(
 
     try:
         return ingest_document(
-            patient_id, dest, doc_type=doc_type, doc_date=doc_date, visit_id=visit_id
+            patient_id, dest, doc_type=doc_type, doc_date=doc_date,
+            visit_id=visit_id, uploaded_by=user["id"],
         )
     except NotMedicalDocument as e:
         dest.unlink(missing_ok=True)
@@ -444,8 +495,10 @@ def upload_document(
 @app.post("/patients/{patient_id}/ask")
 def ask(patient_id: str, body: AskRequest, user: dict = Depends(current_user)):
     _authorize_patient(user, patient_id)
-    _link_if_doctor(user, patient_id)
+    _touch(patient_id)
     # Answer style follows the caller's role; optionally scoped to one visit.
+    # NOTE: questions/answers are NOT stored — chat is private to this session and
+    # is never visible to the other party (doctor or patient).
     return _gemini_guard(
         lambda: rag_ask(patient_id, body.question, role=user["role"], visit_id=body.visit_id)
     )
