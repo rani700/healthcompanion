@@ -46,7 +46,7 @@ def verify_password(password: str, stored: str) -> bool:
             return False
         salt = _unb64(salt_b64)
         expected = _unb64(hash_b64)
-    except (ValueError, Exception):
+    except Exception:
         return False
     dk = hashlib.scrypt(
         password.encode("utf-8"), salt=salt, n=_N, r=_R, p=_P, dklen=_DKLEN

@@ -68,6 +68,7 @@ def extract_text(path: str | Path) -> str:
     from google.genai import types
 
     size = path.stat().st_size
+    uploaded = None
     if size <= config.INLINE_MAX_BYTES:
         part = types.Part.from_bytes(data=path.read_bytes(), mime_type=mime)
         contents = [part, _EXTRACTION_PROMPT]
@@ -76,12 +77,21 @@ def extract_text(path: str | Path) -> str:
         uploaded = client.files.upload(file=str(path))
         contents = [_EXTRACTION_PROMPT, uploaded]
 
-    response = call_with_retry(
-        lambda: client.models.generate_content(
-            model=config.MODEL_GEN,
-            contents=contents,
+    try:
+        response = call_with_retry(
+            lambda: client.models.generate_content(
+                model=config.MODEL_GEN,
+                contents=contents,
+            )
         )
-    )
+    finally:
+        # Don't leave the temporary upload sitting on Gemini's Files store.
+        if uploaded is not None:
+            try:
+                client.files.delete(name=uploaded.name)
+            except Exception:
+                pass
+
     text = (response.text or "").strip()
     if not text:
         raise RuntimeError(f"Gemini returned no text for {path.name}")

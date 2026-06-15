@@ -64,6 +64,16 @@ def add_chunks(
     return len(chunks)
 
 
+def delete_doc_chunks(patient_id: str, doc_id: str) -> int:
+    """Remove all of a document's chunks from the patient's collection."""
+    col = _collection(patient_id)
+    res = col.get(where={"doc_id": doc_id})
+    ids = res.get("ids") or []
+    if ids:
+        col.delete(ids=ids)
+    return len(ids)
+
+
 def update_doc_visit(patient_id: str, doc_id: str, visit_id: str | None) -> int:
     """Re-tag a document's chunks with a new visit_id so visit-scoped search
     stays accurate after a document is moved."""
@@ -87,7 +97,11 @@ def get_all_chunks(patient_id: str, limit: int = 60, visit_id: str | None = None
     col = _collection(patient_id)
     if col.count() == 0:
         return []
-    where = {"visit_id": visit_id} if visit_id else None
+    # Always constrain to the patient; AND the visit when scoping (defense-in-depth).
+    if visit_id:
+        where = {"$and": [{"patient_id": patient_id}, {"visit_id": visit_id}]}
+    else:
+        where = {"patient_id": patient_id}
     res = col.get(include=["documents", "metadatas"], limit=limit, where=where)
     docs = res.get("documents") or []
     metas = res.get("metadatas") or []
@@ -120,7 +134,11 @@ def query(
     n = min(top_k, col.count())
     if n == 0:
         return []
-    where = {"visit_id": visit_id} if visit_id else {"patient_id": patient_id}
+    # Always constrain to the patient; AND the visit when scoping (defense-in-depth).
+    if visit_id:
+        where = {"$and": [{"patient_id": patient_id}, {"visit_id": visit_id}]}
+    else:
+        where = {"patient_id": patient_id}
     res = col.query(
         query_embeddings=[query_embedding],
         n_results=n,
@@ -133,6 +151,7 @@ def query(
     return [
         {
             "text": doc,
+            "doc_id": meta.get("doc_id", ""),
             "doc_type": meta.get("doc_type", ""),
             "doc_date": meta.get("doc_date", ""),
             "filename": meta.get("filename", ""),

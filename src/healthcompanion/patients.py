@@ -156,14 +156,23 @@ def list_patients_for_doctor(doctor_id: str) -> list[dict[str, Any]]:
 
 # --- cached AI summary ------------------------------------------------------
 def docs_fingerprint(patient_id: str) -> str:
-    """A signature of the patient's document set; changes when docs change."""
+    """A signature of the patient's document set.
+
+    Changes when a document is added, removed, OR re-filed to another visit — so
+    the cached summary is correctly invalidated in all of those cases.
+    """
+    import hashlib
+
     with _connect() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) AS n, COALESCE(MAX(ingested_at), '') AS m "
-            "FROM documents WHERE patient_id = ?",
+        rows = conn.execute(
+            "SELECT id, COALESCE(visit_id, ''), ingested_at "
+            "FROM documents WHERE patient_id = ? ORDER BY id",
             (patient_id,),
-        ).fetchone()
-    return f"{row['n']}:{row['m']}"
+        ).fetchall()
+    h = hashlib.sha1()
+    for r in rows:
+        h.update(f"{r[0]}|{r[1]}|{r[2]};".encode())
+    return f"{len(rows)}:{h.hexdigest()[:16]}"
 
 
 def get_cached_summary(patient_id: str) -> tuple[str, str] | None:
@@ -283,6 +292,12 @@ def set_document_visit(doc_id: str, visit_id: str | None) -> dict[str, Any] | No
             "UPDATE documents SET visit_id = ? WHERE id = ?", (visit_id, doc_id)
         )
     return get_document(doc_id)
+
+
+def delete_document(doc_id: str) -> None:
+    """Remove a document's catalog row (vector chunks are removed separately)."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
 
 
 def list_documents(

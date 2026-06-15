@@ -181,7 +181,8 @@ def _dedupe_sources(hits: list[dict[str, Any]]) -> list[dict[str, str]]:
     seen = set()
     out = []
     for h in hits:
-        key = (h["filename"], h["doc_date"])
+        # Prefer doc_id (distinguishes same-named files); fall back to name+date.
+        key = h.get("doc_id") or (h["filename"], h["doc_date"])
         if key in seen:
             continue
         seen.add(key)

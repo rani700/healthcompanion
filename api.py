@@ -19,8 +19,8 @@ Routes:
 
 from __future__ import annotations
 
-import shutil
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -41,11 +41,14 @@ from healthcompanion.rag import summarize_patient as rag_summarize
 from healthcompanion.rag import summarize_visit as rag_summarize_visit
 from healthcompanion.security import create_token, decode_token
 
-app = FastAPI(title="HealthCompanion", version="0.2.0")
+app = FastAPI(title="HealthCompanion", version="0.3.0")
+
+# Fail fast if deployed to production without a real JWT secret.
+config.assert_secure_for_production()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=config.CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -166,6 +169,32 @@ def _token_response(user: dict) -> dict:
     return {"token": token, "user": user}
 
 
+# --- Login throttle (in-memory; single-replica) ------------------------------
+_login_attempts: dict[str, list[float]] = {}
+
+
+def _check_login_throttle(email: str) -> None:
+    key = (email or "").strip().lower()
+    now = time.time()
+    window = config.LOGIN_WINDOW_SECONDS
+    hits = [t for t in _login_attempts.get(key, []) if now - t < window]
+    _login_attempts[key] = hits
+    if len(hits) >= config.LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please wait a few minutes and try again.",
+        )
+
+
+def _record_login_failure(email: str) -> None:
+    key = (email or "").strip().lower()
+    _login_attempts.setdefault(key, []).append(time.time())
+
+
+def _clear_login_failures(email: str) -> None:
+    _login_attempts.pop((email or "").strip().lower(), None)
+
+
 # --- Auth routes -------------------------------------------------------------
 @app.post("/auth/signup")
 def signup(body: SignupBody):
@@ -182,10 +211,13 @@ def signup(body: SignupBody):
 
 @app.post("/auth/login")
 def login(body: LoginBody):
+    _check_login_throttle(body.email)
     try:
         user = auth.login(body.email, body.password)
     except auth.AuthError as e:
+        _record_login_failure(body.email)
         raise HTTPException(status_code=401, detail=str(e))
+    _clear_login_failures(body.email)
     return _token_response(user)
 
 
@@ -329,9 +361,27 @@ def move_document(doc_id: str, body: MoveDoc, user: dict = Depends(current_user)
         visit = patients.get_visit(vid)
         if visit is None or visit["patient_id"] != doc["patient_id"]:
             raise HTTPException(status_code=400, detail="Visit not found for this patient.")
+    old_vid = doc.get("visit_id")
     patients.set_document_visit(doc_id, vid)
-    vectorstore.update_doc_visit(doc["patient_id"], doc_id, vid)
+    try:
+        vectorstore.update_doc_visit(doc["patient_id"], doc_id, vid)
+    except Exception:
+        # Keep the catalog and vector store consistent on partial failure.
+        patients.set_document_visit(doc_id, old_vid)
+        raise HTTPException(status_code=502, detail="Could not move the document; no change made.")
     return patients.get_document(doc_id)
+
+
+@app.delete("/documents/{doc_id}")
+def delete_document(doc_id: str, user: dict = Depends(current_user)):
+    """Delete a document (catalog row + its vector chunks)."""
+    doc = patients.get_document(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    _authorize_patient(user, doc["patient_id"])
+    vectorstore.delete_doc_chunks(doc["patient_id"], doc_id)
+    patients.delete_document(doc_id)
+    return {"deleted": doc_id}
 
 
 @app.post("/patients/{patient_id}/documents")
@@ -352,13 +402,24 @@ def upload_document(
 
     safe_name = Path(file.filename or "upload").name
     dest = config.UPLOADS_DIR / f"{uuid.uuid4().hex[:8]}_{safe_name}"
-    with dest.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
 
-    # Reject oversized files.
-    if dest.stat().st_size > config.MAX_UPLOAD_BYTES:
+    # Stream to disk, enforcing the size cap WHILE writing so an oversized body
+    # can't fill the disk before we'd otherwise check it.
+    limit = config.MAX_UPLOAD_BYTES
+    written = 0
+    try:
+        with dest.open("wb") as out:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > limit:
+                    raise ValueError("too-large")
+                out.write(chunk)
+    except ValueError:
         dest.unlink(missing_ok=True)
-        mb = config.MAX_UPLOAD_BYTES // (1024 * 1024)
+        mb = limit // (1024 * 1024)
         raise HTTPException(status_code=413, detail=f"File too large (max {mb} MB).")
 
     try:

@@ -995,6 +995,23 @@ button:disabled {
 .doc-move:focus {
   color: var(--ink);
 }
+.doc-delete {
+  flex: none;
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--ink-mute);
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.doc-delete:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: var(--amber-wash);
+}
 .doc-name {
   font-weight: 600;
   font-size: 14px;

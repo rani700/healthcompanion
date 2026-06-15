@@ -102,7 +102,9 @@ def test_summary_caching(monkeypatch, tmp_path):
     monkeypatch.setattr(rag, "get_client", lambda: _Client())
     monkeypatch.setattr(
         vectorstore, "get_all_chunks",
-        lambda pid, limit=60: [{"text": "x", "doc_type": "rx", "doc_date": "", "filename": "f"}],
+        lambda pid, limit=60, visit_id=None: [
+            {"text": "x", "doc_type": "rx", "doc_date": "", "filename": "f"}
+        ],
     )
 
     pid = patients.create_patient("Cache Pt")

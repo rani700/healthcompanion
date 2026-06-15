@@ -8,9 +8,12 @@ rejected before anything is embedded or stored.
 from __future__ import annotations
 
 import json
+import logging
 
 import config
 from healthcompanion.gemini_client import call_with_retry, get_client
+
+_log = logging.getLogger("healthcompanion.guardrails")
 
 
 class NotMedicalDocument(Exception):
@@ -54,7 +57,12 @@ def classify_document(text: str) -> dict:
         if not isinstance(data, dict):
             raise ValueError
     except Exception:
-        # Don't block a legitimate record over a parsing hiccup — fail open.
+        # Classifier returned non-JSON. In strict mode fail CLOSED (reject); by
+        # default fail open so a transient hiccup doesn't block a real record.
+        _log.warning("guardrail classifier returned unparseable output: %r", raw[:120])
+        if config.GUARDRAIL_STRICT:
+            return {"medical": False, "type": "non_medical",
+                    "reason": "could not verify (classifier error)"}
         return {"medical": True, "type": "other", "reason": "classifier-unparsable"}
     return data
 

@@ -54,16 +54,21 @@ def ingest_document(
         filename=filename,
         visit_id=visit_id,
     )
-    # Register in the catalog with the same doc_id used for the vectors.
-    patients.add_document(
-        patient_id=patient_id,
-        filename=filename,
-        doc_type=doc_type,
-        doc_date=doc_date,
-        n_chunks=len(chunks),
-        doc_id=doc_id,
-        visit_id=visit_id,
-    )
+    # Register in the catalog with the same doc_id used for the vectors. If this
+    # fails, roll back the vector chunks so we don't leave orphaned embeddings.
+    try:
+        patients.add_document(
+            patient_id=patient_id,
+            filename=filename,
+            doc_type=doc_type,
+            doc_date=doc_date,
+            n_chunks=len(chunks),
+            doc_id=doc_id,
+            visit_id=visit_id,
+        )
+    except Exception:
+        vectorstore.delete_doc_chunks(patient_id, doc_id)
+        raise
 
     return {
         "doc_id": doc_id,

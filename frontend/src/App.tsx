@@ -19,6 +19,10 @@ import PatientSummary from "./components/PatientSummary";
 import AddPatientForm from "./components/AddPatientForm";
 import VisitsPanel from "./components/VisitsPanel";
 
+// Monotonic id for chat messages (avoids Date.now() collisions on rapid asks).
+let _msgSeq = 0;
+const nextMsgId = () => ++_msgSeq;
+
 export default function App() {
   const { user, ready, logout, updateProfile } = useAuth();
 
@@ -134,6 +138,19 @@ export default function App() {
     }
   }
 
+  async function deleteDoc(docId: string) {
+    if (!selectedId) return;
+    if (!window.confirm("Delete this document? This can't be undone.")) return;
+    try {
+      await api.deleteDocument(docId);
+      loadDocuments(selectedId);
+      loadVisits(selectedId);
+      setDocVersion((v) => v + 1);
+    } catch (e) {
+      handle(e);
+    }
+  }
+
   async function createVisit(title: string, doctorId?: string) {
     if (!selectedId) return;
     try {
@@ -156,8 +173,8 @@ export default function App() {
 
   function ask(question: string) {
     if (!selectedId) return;
-    const userMsg: Message = { id: Date.now(), role: "user", text: question };
-    const pendingId = Date.now() + 1;
+    const userMsg: Message = { id: nextMsgId(), role: "user", text: question };
+    const pendingId = nextMsgId();
     setMessages((m) => [
       ...m,
       userMsg,
@@ -283,6 +300,7 @@ export default function App() {
                 busy={uploading}
                 onUpload={upload}
                 onMove={moveDoc}
+                onDelete={deleteDoc}
               />
               <AskPanel
                 messages={messages}

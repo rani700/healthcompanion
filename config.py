@@ -27,11 +27,36 @@ MODEL_GEN = os.getenv("HC_MODEL_GEN", "gemini-2.5-flash")
 MODEL_EMBED = os.getenv("HC_MODEL_EMBED", "gemini-embedding-001")
 EMBED_DIM = int(os.getenv("HC_EMBED_DIM", "768"))
 
+# --- Environment -------------------------------------------------------------
+# "production" enables strict startup checks (see assert_secure_for_production()).
+ENV = os.getenv("HC_ENV", "dev").lower()
+
 # --- Auth --------------------------------------------------------------------
 # Secret used to sign JWT session tokens. MUST be overridden in production.
-JWT_SECRET = os.getenv("HC_JWT_SECRET", "dev-insecure-change-me")
+_DEV_SECRET = "dev-insecure-change-me"
+JWT_SECRET = os.getenv("HC_JWT_SECRET", _DEV_SECRET)
+IS_DEV_SECRET = JWT_SECRET == _DEV_SECRET
 JWT_ALGORITHM = "HS256"
 TOKEN_TTL_HOURS = int(os.getenv("HC_TOKEN_TTL_HOURS", "12"))
+
+# --- CORS --------------------------------------------------------------------
+# Comma-separated allowed origins; defaults to the local Vite dev server.
+CORS_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "HC_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",")
+    if o.strip()
+]
+
+# --- Guardrail ---------------------------------------------------------------
+# When strict, an unparseable classifier response REJECTS the upload (fail closed)
+# instead of allowing it through (fail open).
+GUARDRAIL_STRICT = os.getenv("HC_GUARDRAIL_STRICT", "false").lower() in ("1", "true", "yes")
+
+# --- Login throttle ----------------------------------------------------------
+LOGIN_MAX_ATTEMPTS = int(os.getenv("HC_LOGIN_MAX_ATTEMPTS", "8"))
+LOGIN_WINDOW_SECONDS = int(os.getenv("HC_LOGIN_WINDOW_SECONDS", "300"))
 
 # --- Retrieval / chunking ----------------------------------------------------
 CHUNK_SIZE = 1000
@@ -49,3 +74,16 @@ def ensure_dirs() -> None:
     """Create the runtime data directories if they don't exist."""
     for d in (DATA_DIR, CHROMA_DIR, UPLOADS_DIR):
         d.mkdir(parents=True, exist_ok=True)
+
+
+def assert_secure_for_production() -> None:
+    """Refuse to run in production with the insecure default JWT secret.
+
+    Called at app startup. In dev/test (ENV != "production") this is a no-op, so
+    local runs and the offline test suite don't need a secret configured.
+    """
+    if ENV == "production" and IS_DEV_SECRET:
+        raise RuntimeError(
+            "HC_JWT_SECRET is unset (using the insecure dev default) but HC_ENV=production. "
+            "Refusing to start — set a strong HC_JWT_SECRET."
+        )

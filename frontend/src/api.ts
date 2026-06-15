@@ -48,7 +48,11 @@ export type Demographics = {
 
 export type NewPatient = { name: string } & Demographics;
 
-export type PatientSummary = { summary: string; has_records: boolean };
+export type PatientSummary = {
+  summary: string;
+  has_records: boolean;
+  cached?: boolean;
+};
 
 export type Scope = "mine" | "all";
 
@@ -189,6 +193,11 @@ export const api = {
       `/documents/${docId}`,
       jsonBody("PATCH", { visit_id: visitId }),
     );
+  },
+  deleteDocument(docId: string) {
+    return request<{ deleted: string }>(`/documents/${docId}`, {
+      method: "DELETE",
+    });
   },
   uploadDocument(
     patientId: string,

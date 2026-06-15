@@ -13,6 +13,7 @@ type Props = {
     visitId: string,
   ) => Promise<void>;
   onMove: (docId: string, visitId: string | null) => Promise<void>;
+  onDelete: (docId: string) => Promise<void>;
 };
 
 const DOC_TYPES = [
@@ -36,6 +37,7 @@ export default function DocumentsPanel({
   busy,
   onUpload,
   onMove,
+  onDelete,
 }: Props) {
   const [docType, setDocType] = useState("rx");
   const [docDate, setDocDate] = useState("");
@@ -164,6 +166,14 @@ export default function DocumentsPanel({
                 </option>
               ))}
             </select>
+            <button
+              className="doc-delete"
+              onClick={() => onDelete(d.id)}
+              title="Delete document"
+              aria-label="Delete document"
+            >
+              ✕
+            </button>
           </li>
         ))}
         {documents.length === 0 && (
