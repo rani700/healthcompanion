@@ -36,7 +36,7 @@ def test_relevance_gate_blocks_far_matches(monkeypatch):
     monkeypatch.setattr(rag, "embed_query", lambda t: [0.0])
     # Closest chunk is farther than the threshold -> honest "not found".
     monkeypatch.setattr(
-        vectorstore, "query",
+        vectorstore, "candidates",
         lambda *a, **k: [{"distance": 0.95, "text": "x", "doc_id": "1",
                           "doc_type": "rx", "doc_date": "", "filename": "f"}],
     )
@@ -58,7 +58,7 @@ def test_history_contextualizes_retrieval(monkeypatch):
         return [0.0]
 
     monkeypatch.setattr(rag, "embed_query", _embed)
-    monkeypatch.setattr(vectorstore, "query", lambda *a, **k: [])  # -> not found, no gen
+    monkeypatch.setattr(vectorstore, "candidates", lambda *a, **k: [])  # not found, no gen
     rag.ask(
         "p", "what's the dosage?",
         history=[{"role": "user", "text": "which medicine at night"},

@@ -5,12 +5,49 @@ retrieve -> build grounded context -> generate (role-aware, with citations).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import config
 from healthcompanion import patients, vectorstore
 from healthcompanion.embed import embed_query
 from healthcompanion.gemini_client import call_with_retry, get_client
+
+
+def _llm_rerank(question: str, cands: list[dict[str, Any]], top_k: int) -> list[dict[str, Any]]:
+    """Re-rank candidates by asking the model which excerpts best answer the
+    question (a pragmatic cross-encoder). Falls back to input order on any error."""
+    listing = "\n".join(f"[{i}] {c['text'][:400]}" for i, c in enumerate(cands))
+    prompt = (
+        f"Question: {question}\n\nExcerpts:\n{listing}\n\n"
+        f"Return ONLY a JSON array of excerpt numbers most relevant to answering "
+        f"the question, best first, at most {top_k} items."
+    )
+    client = get_client()
+    from google.genai import types
+
+    try:
+        resp = call_with_retry(
+            lambda: client.models.generate_content(
+                model=config.MODEL_GEN,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0, response_mime_type="application/json"
+                ),
+            )
+        )
+        order = json.loads((resp.text or "").strip())
+        idxs = [int(i) for i in order if 0 <= int(i) < len(cands)]
+    except Exception:
+        idxs = []
+    if not idxs:
+        return cands[:top_k]
+    seen, picked = set(), []
+    for i in idxs + list(range(len(cands))):  # fill any gap with remaining order
+        if i not in seen:
+            seen.add(i)
+            picked.append(cands[i])
+    return picked[:top_k]
 
 _ROLE_GUIDANCE = {
     "doctor": (
@@ -80,11 +117,21 @@ def ask(
     retrieval_text = f"{prev_user} {question}".strip() if prev_user else question
 
     q_vec = embed_query(retrieval_text)
-    hits = vectorstore.query(patient_id, q_vec, top_k=top_k, visit_id=visit_id)
+    cands = vectorstore.candidates(
+        patient_id, q_vec, query_text=retrieval_text, visit_id=visit_id
+    )
 
     # Nothing stored, or even the closest chunk is too far -> honest not-found.
-    if not hits or min(h["distance"] for h in hits) > config.RAG_MAX_DISTANCE:
+    if not cands or min(c["distance"] for c in cands) > config.RAG_MAX_DISTANCE:
         return {"answer": _NOT_FOUND, "sources": [], "used_chunks": 0}
+
+    # Select top_k: opt-in LLM re-rank for sharper ordering, else MMR for diversity.
+    if config.RAG_RERANK:
+        hits = _llm_rerank(question, cands, top_k)
+    else:
+        hits = vectorstore._mmr_select(q_vec, cands, top_k, config.RAG_MMR_LAMBDA)
+    for h in hits:
+        h.pop("embedding", None)
 
     system = _SYSTEM_TEMPLATE.format(
         role_guidance=_ROLE_GUIDANCE[role],

@@ -1,0 +1,24 @@
+{
+  "description": "Small retrieval eval for HealthCompanion. Builds an index from the documents below, runs each query through the real retrieval path (hybrid + MMR), and checks whether the expected terms appear in the retrieved chunks. Uses Gemini embeddings only (no vision).",
+  "documents": [
+    {
+      "doc_type": "rx",
+      "doc_date": "2026-05-14",
+      "text": "Greenfield Family Clinic\nPatient: Ravi Kumar  Age: 54  Date: 2026-05-14\n\nDiagnosis:\nType 2 Diabetes Mellitus, Hypertension, Dyslipidemia.\n\nMedications:\n1. Metformin 500 mg - 1 tablet twice daily after meals (morning and night) - 30 days\n2. Amlodipine 5 mg - 1 tablet once daily in the morning - 30 days\n3. Atorvastatin 10 mg - 1 tablet at night after dinner - 30 days\n4. Vitamin D3 60000 IU - 1 capsule once weekly on Sunday - 8 weeks\n\nAdvice:\nReduce salt intake. Recheck blood sugar in 4 weeks."
+    },
+    {
+      "doc_type": "lab",
+      "doc_date": "2024-02-01",
+      "text": "Metro Diagnostics - Lab Report\nDate: 2024-02-01\n\nLab Results:\nHbA1c: 8.1 %\nFasting blood glucose: 156 mg/dL\nLDL cholesterol: 142 mg/dL\nSerum creatinine: 0.9 mg/dL\n\nImpression: Suboptimal glycaemic control."
+    }
+  ],
+  "queries": [
+    {"q": "which medicines should I take at night?", "expect_any": ["atorvastatin", "metformin"]},
+    {"q": "what is the metformin dosage?", "expect_any": ["500"]},
+    {"q": "how do I take vitamin D?", "expect_any": ["weekly", "sunday", "60000"]},
+    {"q": "what was my HbA1c result?", "expect_any": ["hba1c", "8.1"]},
+    {"q": "what was the LDL cholesterol value?", "expect_any": ["ldl", "142"]},
+    {"q": "what was prescribed in 2026?", "expect_any": ["2026-05-14", "metformin"]},
+    {"q": "what is my blood pressure reading?", "expect_none": true}
+  ]
+}

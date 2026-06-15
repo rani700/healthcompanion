@@ -10,6 +10,7 @@ We supply our own Gemini embeddings (Chroma's default embedder is disabled).
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 import chromadb
@@ -17,6 +18,36 @@ import chromadb
 import config
 
 _client = None
+
+_RRF_K = 60  # Reciprocal Rank Fusion constant
+_STOPWORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "what", "which", "who", "when",
+    "how", "do", "does", "did", "i", "my", "of", "to", "at", "in", "on", "and",
+    "or", "for", "with", "me", "you", "this", "that", "any", "have", "has", "had",
+    "should", "would", "could", "can", "be", "am", "it", "about", "tell",
+}
+
+
+def _keywords(text: str) -> list[str]:
+    """Salient query terms for keyword matching (drug names, codes, numbers)."""
+    toks = re.findall(r"[A-Za-z0-9]+", (text or "").lower())
+    out = []
+    for t in toks:
+        if any(ch.isdigit() for ch in t) or (len(t) >= 3 and t not in _STOPWORDS):
+            if t not in out:
+                out.append(t)
+    return out[:8]
+
+
+def _contains_filter(terms: list[str]):
+    """Chroma where_document filter matching any term (case variants)."""
+    clauses = []
+    for t in terms:
+        for v in dict.fromkeys([t, t.capitalize(), t.upper()]):
+            clauses.append({"$contains": v})
+    if not clauses:
+        return None
+    return clauses[0] if len(clauses) == 1 else {"$or": clauses}
 
 
 def _cosine(a, b) -> float:
@@ -158,51 +189,90 @@ def get_all_chunks(patient_id: str, limit: int = 60, visit_id: str | None = None
     return out
 
 
-def query(
+def _cand(doc, meta, emb) -> dict:
+    meta = meta or {}
+    return {
+        "text": doc,
+        "doc_id": meta.get("doc_id", ""),
+        "doc_type": meta.get("doc_type", ""),
+        "doc_date": meta.get("doc_date", ""),
+        "filename": meta.get("filename", ""),
+        "embedding": list(emb),
+    }
+
+
+def candidates(
     patient_id: str,
     query_embedding: list[float],
-    top_k: int = config.TOP_K,
+    query_text: str | None = None,
     visit_id: str | None = None,
+    n: int | None = None,
 ):
-    """Return the top-k most relevant chunks for a patient.
+    """Hybrid retrieval: fuse vector (semantic) and keyword (exact-term) matches
+    via Reciprocal Rank Fusion. Returns a candidate pool (each with ``embedding``
+    and a unified cosine ``distance``) for the caller to MMR/rerank into top_k.
 
-    Pass ``visit_id`` to restrict retrieval to one visit's documents. Output: list
-    of dicts with ``text``, ``doc_type``, ``doc_date``, ``filename``, ``distance``.
+    Always constrained to the patient; ANDed with ``visit_id`` when scoping.
     """
     col = _collection(patient_id)
     count = col.count()
     if count == 0:
         return []
-    # Over-fetch candidates, then MMR-select top_k for diversity.
-    n = min(max(config.RAG_CANDIDATES, top_k), count)
-    # Always constrain to the patient; AND the visit when scoping (defense-in-depth).
-    if visit_id:
-        where = {"$and": [{"patient_id": patient_id}, {"visit_id": visit_id}]}
-    else:
-        where = {"patient_id": patient_id}
-    res = col.query(
+    n = min(n or config.RAG_CANDIDATES, count)
+    where = (
+        {"$and": [{"patient_id": patient_id}, {"visit_id": visit_id}]}
+        if visit_id
+        else {"patient_id": patient_id}
+    )
+
+    pool: dict[str, dict] = {}
+
+    # 1) Vector (semantic) results — ranked by similarity.
+    vres = col.query(
         query_embeddings=[query_embedding],
         n_results=n,
         where=where,
-        include=["documents", "metadatas", "distances", "embeddings"],
+        include=["documents", "metadatas", "embeddings"],
     )
-    docs = res["documents"][0]
-    metas = res["metadatas"][0]
-    dists = res["distances"][0]
-    embs = res["embeddings"][0]
-    cands = [
-        {
-            "text": doc,
-            "doc_id": (meta or {}).get("doc_id", ""),
-            "doc_type": (meta or {}).get("doc_type", ""),
-            "doc_date": (meta or {}).get("doc_date", ""),
-            "filename": (meta or {}).get("filename", ""),
-            "distance": dist,
-            "embedding": list(emb),
-        }
-        for doc, meta, dist, emb in zip(docs, metas, dists, embs)
-    ]
-    selected = _mmr_select(query_embedding, cands, top_k, config.RAG_MMR_LAMBDA)
-    for c in selected:
-        c.pop("embedding", None)  # not needed downstream
-    return selected
+    for rank, (id_, doc, meta, emb) in enumerate(
+        zip(vres["ids"][0], vres["documents"][0], vres["metadatas"][0], vres["embeddings"][0])
+    ):
+        c = _cand(doc, meta, emb)
+        c["_vrank"], c["_krank"] = rank, None
+        pool[id_] = c
+
+    # 2) Keyword (exact-term) results — ranked by number of query terms present.
+    terms = _keywords(query_text or "")
+    wd = _contains_filter(terms)
+    if wd is not None:
+        kres = col.get(
+            where=where, where_document=wd, limit=n,
+            include=["documents", "metadatas", "embeddings"],
+        )
+        scored = []
+        for id_, doc, meta, emb in zip(
+            kres["ids"], kres["documents"], kres["metadatas"], kres["embeddings"]
+        ):
+            hits = sum(1 for t in terms if t in (doc or "").lower())
+            scored.append((hits, id_, doc, meta, emb))
+        scored.sort(key=lambda x: -x[0])
+        for krank, (_, id_, doc, meta, emb) in enumerate(scored):
+            if id_ in pool:
+                pool[id_]["_krank"] = krank
+            else:
+                c = _cand(doc, meta, emb)
+                c["_vrank"], c["_krank"] = None, krank
+                pool[id_] = c
+
+    # 3) Reciprocal Rank Fusion + a unified cosine distance for the relevance gate.
+    for c in pool.values():
+        score = 0.0
+        if c["_vrank"] is not None:
+            score += 1.0 / (_RRF_K + c["_vrank"])
+        if c["_krank"] is not None:
+            score += 1.0 / (_RRF_K + c["_krank"])
+        c["_rrf"] = score
+        c["distance"] = 1.0 - _cosine(query_embedding, c["embedding"])
+
+    fused = sorted(pool.values(), key=lambda c: -c["_rrf"])
+    return fused[:n]

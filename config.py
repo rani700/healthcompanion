@@ -83,6 +83,8 @@ RAG_MMR_LAMBDA = float(os.getenv("HC_RAG_MMR_LAMBDA", "0.6"))  # relevance vs di
 RAG_MAX_DISTANCE = float(os.getenv("HC_RAG_MAX_DISTANCE", "0.85"))
 # Max prior conversation turns to include for follow-up questions.
 RAG_HISTORY_TURNS = int(os.getenv("HC_RAG_HISTORY_TURNS", "6"))
+# Opt-in LLM re-ranking of candidates (sharper ordering, +1 model call/question).
+RAG_RERANK = os.getenv("HC_RAG_RERANK", "false").lower() in ("1", "true", "yes")
 
 # Inline-bytes ceiling for the Gemini request; above this we use the Files API.
 INLINE_MAX_BYTES = 20 * 1024 * 1024  # 20 MB
