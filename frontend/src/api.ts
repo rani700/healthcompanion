@@ -120,7 +120,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
 
   const res = await fetch(`${BASE}${path}`, { ...init, headers });
-  if (res.status === 401) {
+  // A 401 only means "session expired" when we actually had a token. A 401 on a
+  // login/signup attempt (no token) is a credentials error — surface its message.
+  if (res.status === 401 && authToken) {
     throw new AuthExpired("Your session has expired. Please sign in again.");
   }
   if (!res.ok) {
