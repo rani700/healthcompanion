@@ -21,7 +21,7 @@ type Props = {
   doctors: Doctor[];
   sharesByDoc: Record<string, string[]>;
   onUpload: (
-    file: File,
+    files: File[],
     docType: string,
     docDate: string,
     visitId: string,
@@ -73,7 +73,7 @@ export default function DocumentsPanel({
   const [docType, setDocType] = useState("rx");
   const [docDate, setDocDate] = useState("");
   const [visitId, setVisitId] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -140,9 +140,9 @@ export default function DocumentsPanel({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file) return;
-    await onUpload(file, docType, docDate, visitId);
-    setFile(null);
+    if (files.length === 0) return;
+    await onUpload(files, docType, docDate, visitId);
+    setFiles([]);
     setDocDate("");
     if (inputRef.current) inputRef.current.value = "";
   }
@@ -156,7 +156,7 @@ export default function DocumentsPanel({
 
       <form className="uploader" onSubmit={submit}>
         <label
-          className={`dropzone ${dragOver ? "over" : ""} ${file ? "has-file" : ""}`}
+          className={`dropzone ${dragOver ? "over" : ""} ${files.length ? "has-file" : ""}`}
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);
@@ -165,23 +165,26 @@ export default function DocumentsPanel({
           onDrop={(e) => {
             e.preventDefault();
             setDragOver(false);
-            const f = e.dataTransfer.files?.[0];
-            if (f) setFile(f);
+            const dropped = Array.from(e.dataTransfer.files ?? []);
+            if (dropped.length) setFiles(dropped);
           }}
         >
           <input
             ref={inputRef}
             type="file"
+            multiple
             accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,.txt"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             hidden
           />
-          {file ? (
-            <span className="drop-file">{file.name}</span>
+          {files.length === 1 ? (
+            <span className="drop-file">{files[0].name}</span>
+          ) : files.length > 1 ? (
+            <span className="drop-file">{files.length} files selected</span>
           ) : (
             <span className="drop-cue">
-              Drop a report or prescription
-              <em>scans &amp; handwriting welcome</em>
+              Drop reports or prescriptions
+              <em>several at once · scans &amp; handwriting welcome</em>
             </span>
           )}
         </label>
@@ -200,8 +203,12 @@ export default function DocumentsPanel({
             onChange={(e) => setDocDate(e.target.value)}
             aria-label="Document date"
           />
-          <button type="submit" disabled={!file || busy}>
-            {busy ? "Reading…" : "Ingest"}
+          <button type="submit" disabled={files.length === 0 || busy}>
+            {busy
+              ? "Reading…"
+              : files.length > 1
+                ? `Ingest ${files.length}`
+                : "Ingest"}
           </button>
         </div>
         <label className="visit-attach">

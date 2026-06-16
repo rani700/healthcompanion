@@ -122,24 +122,32 @@ export default function App() {
   }
 
   async function upload(
-    file: File,
+    files: File[],
     docType: string,
     docDate: string,
     visitId: string,
   ) {
-    if (!selectedId) return;
+    if (!selectedId || files.length === 0) return;
     setUploading(true);
     setError(null);
-    try {
-      await api.uploadDocument(selectedId, file, docType, docDate, visitId);
-      loadDocuments(selectedId);
-      loadVisits(selectedId); // visit doc-counts changed
-      setDocVersion((v) => v + 1); // records changed -> refresh summary
-    } catch (e) {
-      handle(e);
-    } finally {
-      setUploading(false);
+    const failed: string[] = [];
+    // Upload sequentially so one bad scan doesn't abort the rest, then refresh once.
+    for (const file of files) {
+      try {
+        await api.uploadDocument(selectedId, file, docType, docDate, visitId);
+      } catch (e) {
+        failed.push(`${file.name}: ${describe(e)}`);
+        if (e instanceof AuthExpired) {
+          handle(e);
+          break;
+        }
+      }
     }
+    loadDocuments(selectedId);
+    loadVisits(selectedId); // visit doc-counts changed
+    setDocVersion((v) => v + 1); // records changed -> refresh summary
+    if (failed.length) setError(`Some files weren't added — ${failed.join("; ")}`);
+    setUploading(false);
   }
 
   async function prescribe(draft: PrescriptionDraft) {
