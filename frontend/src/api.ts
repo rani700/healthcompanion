@@ -94,6 +94,21 @@ export type Doctor = {
   clinic: string | null;
 };
 
+export type Medication = {
+  name: string;
+  dosage?: string;
+  frequency?: string;
+  duration?: string;
+};
+
+export type PrescriptionDraft = {
+  medications: Medication[];
+  diagnosis?: string;
+  advice?: string;
+  doc_date?: string;
+  visit_id?: string | null;
+};
+
 export type Source = {
   filename: string;
   doc_type: string;
@@ -227,6 +242,13 @@ export const api = {
       method: "POST",
       body: form,
     });
+  },
+  // Doctor drafts a prescription in-portal; it lands in the patient's record.
+  createPrescription(patientId: string, draft: PrescriptionDraft) {
+    return request<Document>(
+      `/patients/${patientId}/prescriptions`,
+      jsonBody("POST", draft),
+    );
   },
 
   // visits / episodes

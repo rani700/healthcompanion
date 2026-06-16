@@ -34,7 +34,7 @@ from pydantic import BaseModel
 
 from healthcompanion import auth, patients, retention, vectorstore
 from healthcompanion.guardrails import NotMedicalDocument
-from healthcompanion.ingest import ingest_document
+from healthcompanion.ingest import ingest_document, ingest_text
 from healthcompanion.rag import ask as rag_ask
 from healthcompanion.rag import summarize_patient as rag_summarize
 from healthcompanion.rag import summarize_visit as rag_summarize_visit
@@ -127,6 +127,39 @@ class MoveDoc(BaseModel):
 
 class ShareBody(BaseModel):
     doctor_id: str
+
+
+class Medication(BaseModel):
+    name: str
+    dosage: str | None = None
+    frequency: str | None = None
+    duration: str | None = None
+
+
+class PrescriptionBody(BaseModel):
+    medications: list[Medication]
+    diagnosis: str | None = None
+    advice: str | None = None
+    doc_date: str | None = None
+    visit_id: str | None = None
+
+
+def _render_prescription(body: "PrescriptionBody", doctor_name: str, specialty: str | None) -> str:
+    by = doctor_name + (f", {specialty}" if specialty else "")
+    lines = ["Prescription"]
+    if body.doc_date:
+        lines.append(f"Date: {body.doc_date}")
+    lines.append(f"Prescribed by: Dr {by}")
+    if body.diagnosis:
+        lines.append(f"\nDiagnosis: {body.diagnosis}")
+    lines.append("\nMedications:")
+    for i, m in enumerate(body.medications, 1):
+        seg = " ".join(p for p in [m.name, m.dosage] if p)
+        extra = " — ".join(x for x in [m.frequency, m.duration] if x)
+        lines.append(f"{i}. {seg}" + (f" — {extra}" if extra else ""))
+    if body.advice:
+        lines.append(f"\nAdvice: {body.advice}")
+    return "\n".join(lines)
 
 
 def _link_if_doctor(user: dict, patient_id: str) -> None:
@@ -569,6 +602,29 @@ def upload_document(
                 "Please try again in a minute.",
             )
         raise HTTPException(status_code=422, detail=msg)
+
+
+@app.post("/patients/{patient_id}/prescriptions")
+def create_prescription(
+    patient_id: str, body: PrescriptionBody, user: dict = Depends(require_doctor)
+):
+    """A doctor drafts a prescription in-portal; it's stored as a document in the
+    patient's record (searchable like any upload), attributed to the doctor."""
+    _authorize_patient(user, patient_id)
+    meds = [m for m in body.medications if m.name and m.name.strip()]
+    if not meds:
+        raise HTTPException(status_code=400, detail="Add at least one medication.")
+    body.medications = meds
+    text = _render_prescription(body, user["name"], user.get("specialty"))
+    date_label = body.doc_date or datetime.now(timezone.utc).date().isoformat()
+    filename = f"Prescription {date_label}.txt"
+    _touch(patient_id)
+    return _gemini_guard(
+        lambda: ingest_text(
+            patient_id, text, filename, doc_type="rx",
+            doc_date=body.doc_date, visit_id=body.visit_id, uploaded_by=user["id"],
+        )
+    )
 
 
 @app.post("/patients/{patient_id}/ask")

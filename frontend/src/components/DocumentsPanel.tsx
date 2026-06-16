@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { Doctor, Document, User, Visit } from "../api";
+import type {
+  Doctor,
+  Document,
+  Medication,
+  PrescriptionDraft,
+  User,
+  Visit,
+} from "../api";
 
 // A patient may delete their own upload only within this window (mirror of the
 // server rule) — used to decide whether to show the delete control.
@@ -19,6 +26,7 @@ type Props = {
     docDate: string,
     visitId: string,
   ) => Promise<void>;
+  onPrescribe: (draft: PrescriptionDraft) => Promise<void>;
   onMove: (docId: string, visitId: string | null) => Promise<void>;
   onDelete: (docId: string) => Promise<void>;
   onShare: (docId: string, doctorId: string) => Promise<void>;
@@ -48,6 +56,7 @@ export default function DocumentsPanel({
   doctors,
   sharesByDoc,
   onUpload,
+  onPrescribe,
   onMove,
   onDelete,
   onShare,
@@ -67,6 +76,50 @@ export default function DocumentsPanel({
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Doctor-only in-portal prescription composer.
+  const isDoctor = currentUser.role === "doctor";
+  const blankMed = (): Medication => ({ name: "", dosage: "", frequency: "", duration: "" });
+  const [composing, setComposing] = useState(false);
+  const [diagnosis, setDiagnosis] = useState("");
+  const [advice, setAdvice] = useState("");
+  const [rxDate, setRxDate] = useState("");
+  const [meds, setMeds] = useState<Medication[]>([blankMed()]);
+
+  const setMed = (i: number, field: keyof Medication, value: string) =>
+    setMeds((rows) => rows.map((m, j) => (j === i ? { ...m, [field]: value } : m)));
+  const addMed = () => setMeds((rows) => [...rows, blankMed()]);
+  const removeMed = (i: number) =>
+    setMeds((rows) => (rows.length > 1 ? rows.filter((_, j) => j !== i) : rows));
+
+  function resetRx() {
+    setComposing(false);
+    setDiagnosis("");
+    setAdvice("");
+    setRxDate("");
+    setMeds([blankMed()]);
+  }
+
+  async function submitRx(e: React.FormEvent) {
+    e.preventDefault();
+    const clean = meds
+      .map((m) => ({
+        name: m.name.trim(),
+        dosage: m.dosage?.trim() || undefined,
+        frequency: m.frequency?.trim() || undefined,
+        duration: m.duration?.trim() || undefined,
+      }))
+      .filter((m) => m.name);
+    if (clean.length === 0) return;
+    await onPrescribe({
+      medications: clean,
+      diagnosis: diagnosis.trim() || undefined,
+      advice: advice.trim() || undefined,
+      doc_date: rxDate || undefined,
+      visit_id: visitId || null,
+    });
+    resetRx();
+  }
 
   // Visits selectable for an upload: open ones, plus the focused visit.
   const selectable = visits.filter(
@@ -169,6 +222,118 @@ export default function DocumentsPanel({
           </select>
         </label>
       </form>
+
+      {isDoctor && !composing && (
+        <button
+          type="button"
+          className="rx-open"
+          onClick={() => setComposing(true)}
+        >
+          ℞ Draft a prescription
+        </button>
+      )}
+
+      {isDoctor && composing && (
+        <form className="rx-composer" onSubmit={submitRx}>
+          <div className="rx-head">
+            <h3>℞ New prescription</h3>
+            <button type="button" className="rx-cancel" onClick={resetRx}>
+              Cancel
+            </button>
+          </div>
+
+          <input
+            className="rx-field"
+            placeholder="Diagnosis (optional)"
+            value={diagnosis}
+            onChange={(e) => setDiagnosis(e.target.value)}
+          />
+
+          <div className="rx-meds">
+            {meds.map((m, i) => (
+              <div className="rx-med" key={i}>
+                <input
+                  className="rx-med-name"
+                  placeholder="Medication *"
+                  value={m.name}
+                  onChange={(e) => setMed(i, "name", e.target.value)}
+                />
+                <input
+                  placeholder="Dosage (e.g. 500 mg)"
+                  value={m.dosage}
+                  onChange={(e) => setMed(i, "dosage", e.target.value)}
+                />
+                <input
+                  placeholder="Frequency (e.g. twice daily)"
+                  value={m.frequency}
+                  onChange={(e) => setMed(i, "frequency", e.target.value)}
+                />
+                <input
+                  placeholder="Duration (e.g. 7 days)"
+                  value={m.duration}
+                  onChange={(e) => setMed(i, "duration", e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="rx-med-del"
+                  onClick={() => removeMed(i)}
+                  disabled={meds.length === 1}
+                  aria-label="Remove medication"
+                  title="Remove"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button type="button" className="rx-add" onClick={addMed}>
+              + Add medication
+            </button>
+          </div>
+
+          <textarea
+            className="rx-field"
+            placeholder="Advice / instructions (optional)"
+            rows={2}
+            value={advice}
+            onChange={(e) => setAdvice(e.target.value)}
+          />
+
+          <div className="rx-foot">
+            <label className="rx-date">
+              <span>Date</span>
+              <input
+                type="date"
+                max={new Date().toISOString().slice(0, 10)}
+                value={rxDate}
+                onChange={(e) => setRxDate(e.target.value)}
+              />
+            </label>
+            <label className="rx-attach">
+              <span>File under</span>
+              <select
+                value={visitId}
+                onChange={(e) => setVisitId(e.target.value)}
+                aria-label="Attach prescription to visit"
+              >
+                <option value="">General (no visit)</option>
+                {selectable.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    Visit: {v.title}
+                    {v.status === "closed" ? " (closed)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="rx-save"
+              disabled={busy || !meds.some((m) => m.name.trim())}
+            >
+              {busy ? "Saving…" : "Add to record"}
+            </button>
+          </div>
+        </form>
+      )}
 
       <ul className="doc-list">
         {documents.map((d) => {

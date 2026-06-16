@@ -1663,3 +1663,137 @@ button:disabled {
     display: none;
   }
 }
+
+/* ---------- Doctor prescription composer ---------- */
+.rx-open {
+  width: 100%;
+  margin-top: 12px;
+  border: 1px dashed var(--line-strong) !important;
+  background: var(--green-wash) !important;
+  color: var(--green-deep) !important;
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+}
+.rx-open:hover {
+  border-color: var(--green) !important;
+}
+.rx-composer {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+.rx-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rx-head h3 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 17px;
+  color: var(--green-deep);
+}
+.rx-cancel {
+  border: 1px solid var(--line-strong) !important;
+  background: var(--surface) !important;
+  color: var(--ink-mute) !important;
+  font-size: 12.5px;
+  padding: 5px 12px !important;
+  border-radius: 999px !important;
+}
+.rx-field {
+  width: 100%;
+  font-family: var(--sans);
+}
+textarea.rx-field {
+  resize: vertical;
+  padding: 9px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  outline: none;
+}
+.rx-meds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--paper-2);
+  border-radius: 10px;
+}
+.rx-med {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1.2fr 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+.rx-med input {
+  font-size: 13px;
+  padding: 7px 9px;
+}
+.rx-med-name {
+  font-weight: 600;
+}
+.rx-med-del {
+  border: 1px solid var(--line-strong) !important;
+  background: var(--surface) !important;
+  color: var(--amber) !important;
+  width: 30px;
+  height: 30px;
+  padding: 0 !important;
+  border-radius: 8px !important;
+  font-size: 12px;
+}
+.rx-add {
+  align-self: flex-start;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--green-deep) !important;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 4px 2px !important;
+  text-decoration: underline;
+}
+.rx-foot {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rx-date,
+.rx-attach {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-mute);
+}
+.rx-attach {
+  flex: 1;
+  min-width: 160px;
+}
+.rx-save {
+  margin-left: auto;
+}
+@media (max-width: 720px) {
+  .rx-med {
+    grid-template-columns: 1fr 1fr;
+  }
+  .rx-med-del {
+    grid-column: span 2;
+    width: 100%;
+  }
+}

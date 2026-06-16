@@ -53,6 +53,55 @@ def test_doctor_sees_only_own_visits(client):
     assert set(p_visits) == {"fever", "knee", "self note"}  # patient sees all
 
 
+def test_doctor_drafts_prescription(client, monkeypatch):
+    import api
+    captured = {}
+    monkeypatch.setattr(
+        api, "ingest_text",
+        lambda pid, text, filename, **k: (
+            captured.update(text=text, filename=filename, kw=k)
+            or {"doc_id": "x", "n_chunks": 1, "filename": filename,
+                "doc_type": "rx", "doc_date": k.get("doc_date")}
+        ),
+    )
+    da = _doctor(client, "a@x.com")
+    atok, aid = da["token"], da["user"]["id"]
+    pat = _patient(client)
+    ptok, pid = pat["token"], pat["user"]["patient_id"]
+    client.post(f"/patients/{pid}/visits", json={"title": "checkup", "doctor_id": aid}, headers=H(ptok))
+
+    r = client.post(
+        f"/patients/{pid}/prescriptions",
+        json={"diagnosis": "Type 2 Diabetes",
+              "medications": [{"name": "Metformin", "dosage": "500 mg", "frequency": "twice daily"}]},
+        headers=H(atok),
+    )
+    assert r.status_code == 200
+    assert "Metformin" in captured["text"] and "Type 2 Diabetes" in captured["text"]
+    assert captured["kw"].get("uploaded_by") == aid
+    assert captured["kw"].get("doc_type") == "rx"
+
+
+def test_prescription_requires_medication(client):
+    da = _doctor(client, "a@x.com")
+    atok, aid = da["token"], da["user"]["id"]
+    pat = _patient(client)
+    ptok, pid = pat["token"], pat["user"]["patient_id"]
+    client.post(f"/patients/{pid}/visits", json={"title": "c", "doctor_id": aid}, headers=H(ptok))
+    r = client.post(f"/patients/{pid}/prescriptions", json={"medications": []}, headers=H(atok))
+    assert r.status_code == 400
+
+
+def test_patient_cannot_prescribe(client):
+    pat = _patient(client)
+    r = client.post(
+        f"/patients/{pat['user']['patient_id']}/prescriptions",
+        json={"medications": [{"name": "X"}]},
+        headers=H(pat["token"]),
+    )
+    assert r.status_code == 403
+
+
 def test_document_visibility_and_sharing(client):
     from healthcompanion import patients
     da = _doctor(client, "a@x.com")

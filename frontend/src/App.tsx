@@ -7,6 +7,7 @@ import {
   type Document,
   type NewPatient,
   type Patient,
+  type PrescriptionDraft,
   type Visit,
 } from "./api";
 import { useAuth } from "./auth";
@@ -131,6 +132,22 @@ export default function App() {
     setError(null);
     try {
       await api.uploadDocument(selectedId, file, docType, docDate, visitId);
+      loadDocuments(selectedId);
+      loadVisits(selectedId); // visit doc-counts changed
+      setDocVersion((v) => v + 1); // records changed -> refresh summary
+    } catch (e) {
+      handle(e);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function prescribe(draft: PrescriptionDraft) {
+    if (!selectedId) return;
+    setUploading(true);
+    setError(null);
+    try {
+      await api.createPrescription(selectedId, draft);
       loadDocuments(selectedId);
       loadVisits(selectedId); // visit doc-counts changed
       setDocVersion((v) => v + 1); // records changed -> refresh summary
@@ -344,6 +361,7 @@ export default function App() {
                 doctors={doctors}
                 sharesByDoc={sharesByDoc}
                 onUpload={upload}
+                onPrescribe={prescribe}
                 onMove={moveDoc}
                 onDelete={deleteDoc}
                 onShare={shareDoc}
