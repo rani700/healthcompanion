@@ -31,6 +31,7 @@ export default function App() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [careTeam, setCareTeam] = useState<CareTeamMember[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [sharesByDoc, setSharesByDoc] = useState<Record<string, string[]>>({});
   const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -65,9 +66,25 @@ export default function App() {
 
   const loadDocuments = useCallback(
     (id: string) => {
-      api.listDocuments(id).then(setDocuments).catch(handle);
+      api
+        .listDocuments(id)
+        .then((docs) => {
+          setDocuments(docs);
+          // A patient can manage who each document is shared with.
+          if (user?.role === "patient") {
+            Promise.all(
+              docs.map((d) =>
+                api
+                  .documentShares(d.id)
+                  .then((s) => [d.id, s] as const)
+                  .catch(() => [d.id, []] as const),
+              ),
+            ).then((entries) => setSharesByDoc(Object.fromEntries(entries)));
+          }
+        })
+        .catch(handle);
     },
-    [handle],
+    [handle, user],
   );
 
   const loadVisits = useCallback(
@@ -131,6 +148,30 @@ export default function App() {
       loadDocuments(selectedId);
       loadVisits(selectedId); // visit counts changed
       setDocVersion((v) => v + 1); // summaries may change
+    } catch (e) {
+      handle(e);
+    }
+  }
+
+  async function shareDoc(docId: string, doctorId: string) {
+    try {
+      await api.shareDocument(docId, doctorId);
+      setSharesByDoc((m) => ({
+        ...m,
+        [docId]: Array.from(new Set([...(m[docId] || []), doctorId])),
+      }));
+    } catch (e) {
+      handle(e);
+    }
+  }
+
+  async function unshareDoc(docId: string, doctorId: string) {
+    try {
+      await api.unshareDocument(docId, doctorId);
+      setSharesByDoc((m) => ({
+        ...m,
+        [docId]: (m[docId] || []).filter((d) => d !== doctorId),
+      }));
     } catch (e) {
       handle(e);
     }
@@ -257,6 +298,7 @@ export default function App() {
             <PatientSummary
               patient={selected}
               refreshSignal={docVersion}
+              hasDocuments={documents.length > 0}
               onSaved={(u) =>
                 setPatients((prev) =>
                   prev.map((p) => (p.id === u.id ? u : p)),
@@ -299,9 +341,13 @@ export default function App() {
                 activeVisitId={selectedVisitId}
                 busy={uploading}
                 currentUser={user}
+                doctors={doctors}
+                sharesByDoc={sharesByDoc}
                 onUpload={upload}
                 onMove={moveDoc}
                 onDelete={deleteDoc}
+                onShare={shareDoc}
+                onUnshare={unshareDoc}
               />
               <AskPanel
                 messages={messages}

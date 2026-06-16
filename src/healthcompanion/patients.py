@@ -51,6 +51,12 @@ CREATE TABLE IF NOT EXISTS visits (
     closed_at   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_visits_patient ON visits(patient_id);
+CREATE TABLE IF NOT EXISTS document_shares (
+    doc_id     TEXT NOT NULL,
+    doctor_id  TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (doc_id, doctor_id)
+);
 """
 
 # Columns added after the first release; back-filled on connect.
@@ -286,16 +292,26 @@ def get_visit(visit_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def list_visits(patient_id: str) -> list[dict[str, Any]]:
-    """Visits for a patient, newest first, each with its document count."""
+def list_visits(
+    patient_id: str, doctor_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Visits for a patient, newest first, each with its document count.
+
+    With ``doctor_id``, return ONLY visits attended by that doctor (privacy:
+    a doctor never sees another doctor's or the patient's self-recorded visits).
+    """
+    sql = (
+        "SELECT v.*, "
+        "(SELECT COUNT(*) FROM documents d WHERE d.visit_id = v.id) AS n_docs "
+        "FROM visits v WHERE v.patient_id = ? "
+    )
+    params: list[Any] = [patient_id]
+    if doctor_id is not None:
+        sql += "AND v.doctor_id = ? "
+        params.append(doctor_id)
+    sql += "ORDER BY v.started_at DESC"
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT v.*, "
-            "(SELECT COUNT(*) FROM documents d WHERE d.visit_id = v.id) AS n_docs "
-            "FROM visits v WHERE v.patient_id = ? "
-            "ORDER BY v.started_at DESC",
-            (patient_id,),
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -375,18 +391,56 @@ def delete_document(doc_id: str) -> None:
 
 
 def list_documents(
-    patient_id: str, visit_id: str | None = None
+    patient_id: str, visit_id: str | None = None, doctor_id: str | None = None
 ) -> list[dict[str, Any]]:
+    """Documents for a patient. With ``doctor_id``, restrict to ones the doctor
+    may see: in one of the doctor's visits, uploaded by the doctor, or shared by
+    the patient with that doctor."""
+    sql = "SELECT * FROM documents WHERE patient_id = ? "
+    params: list[Any] = [patient_id]
+    if visit_id:
+        sql += "AND visit_id = ? "
+        params.append(visit_id)
+    if doctor_id is not None:
+        sql += (
+            "AND (uploaded_by = ? "
+            "OR visit_id IN (SELECT id FROM visits WHERE patient_id = ? AND doctor_id = ?) "
+            "OR id IN (SELECT doc_id FROM document_shares WHERE doctor_id = ?)) "
+        )
+        params += [doctor_id, patient_id, doctor_id, doctor_id]
+    sql += "ORDER BY ingested_at"
     with _connect() as conn:
-        if visit_id:
-            rows = conn.execute(
-                "SELECT * FROM documents WHERE patient_id = ? AND visit_id = ? "
-                "ORDER BY ingested_at",
-                (patient_id, visit_id),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM documents WHERE patient_id = ? ORDER BY ingested_at",
-                (patient_id,),
-            ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
+
+
+def visible_doc_ids_for_doctor(patient_id: str, doctor_id: str) -> list[str]:
+    """Document ids a doctor may see for a patient (for summary/ask scoping)."""
+    return [d["id"] for d in list_documents(patient_id, doctor_id=doctor_id)]
+
+
+# --- document sharing (patient -> doctor) -----------------------------------
+def share_document(doc_id: str, doctor_id: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO document_shares (doc_id, doctor_id, created_at) "
+            "VALUES (?, ?, ?)",
+            (doc_id, doctor_id, _now()),
+        )
+
+
+def unshare_document(doc_id: str, doctor_id: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM document_shares WHERE doc_id = ? AND doctor_id = ?",
+            (doc_id, doctor_id),
+        )
+
+
+def list_doc_shares(doc_id: str) -> list[str]:
+    """Doctor ids a document is shared with."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT doctor_id FROM document_shares WHERE doc_id = ?", (doc_id,)
+        ).fetchall()
+    return [r["doctor_id"] for r in rows]

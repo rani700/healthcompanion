@@ -125,6 +125,10 @@ class MoveDoc(BaseModel):
     visit_id: str | None = None  # None/"" -> general (no visit)
 
 
+class ShareBody(BaseModel):
+    doctor_id: str
+
+
 def _link_if_doctor(user: dict, patient_id: str) -> None:
     """Record a care relationship when a doctor works with a patient."""
     if user["role"] == "doctor":
@@ -185,6 +189,14 @@ def _authorize_patient(user: dict, patient_id: str) -> None:
 def _touch(patient_id: str) -> None:
     """Record activity on a patient (resets the inactivity/retention clock)."""
     patients.touch_patient(patient_id)
+
+
+def _doc_scope(user: dict, patient_id: str):
+    """None for a patient (their full record); for a doctor, the list of document
+    ids they may see (in their visits, uploaded by them, or shared with them)."""
+    if user["role"] == "doctor":
+        return patients.visible_doc_ids_for_doctor(patient_id, user["id"])
+    return None
 
 
 def _token_response(user: dict) -> dict:
@@ -308,7 +320,9 @@ def patient_summary(
     patient_id: str, refresh: bool = False, user: dict = Depends(current_user)
 ):
     _authorize_patient(user, patient_id)
-    return _gemini_guard(lambda: rag_summarize(patient_id, refresh=refresh))
+    return _gemini_guard(
+        lambda: rag_summarize(patient_id, refresh=refresh, doc_ids=_doc_scope(user, patient_id))
+    )
 
 
 @app.get("/patients/{patient_id}/care-team")
@@ -322,7 +336,9 @@ def care_team(patient_id: str, user: dict = Depends(current_user)):
 @app.get("/patients/{patient_id}/visits")
 def list_visits(patient_id: str, user: dict = Depends(current_user)):
     _authorize_patient(user, patient_id)
-    return patients.list_visits(patient_id)
+    # A doctor sees only their own visits; the patient sees all of theirs.
+    doctor_id = user["id"] if user["role"] == "doctor" else None
+    return patients.list_visits(patient_id, doctor_id=doctor_id)
 
 
 @app.post("/patients/{patient_id}/visits")
@@ -354,6 +370,8 @@ def close_visit(visit_id: str, user: dict = Depends(current_user)):
     if visit is None:
         raise HTTPException(status_code=404, detail="Visit not found")
     _authorize_patient(user, visit["patient_id"])
+    if user["role"] == "doctor" and visit.get("doctor_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Not your visit.")
     _touch(visit["patient_id"])
     return patients.set_visit_status(visit_id, "closed")
 
@@ -364,6 +382,8 @@ def visit_summary(visit_id: str, user: dict = Depends(current_user)):
     if visit is None:
         raise HTTPException(status_code=404, detail="Visit not found")
     _authorize_patient(user, visit["patient_id"])
+    if user["role"] == "doctor" and visit.get("doctor_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Not your visit.")
     return _gemini_guard(lambda: rag_summarize_visit(visit["patient_id"], visit_id))
 
 
@@ -372,7 +392,9 @@ def list_documents(
     patient_id: str, visit_id: str | None = None, user: dict = Depends(current_user)
 ):
     _authorize_patient(user, patient_id)
-    return patients.list_documents(patient_id, visit_id=visit_id)
+    # A doctor sees only documents in their visits / uploaded by them / shared.
+    doctor_id = user["id"] if user["role"] == "doctor" else None
+    return patients.list_documents(patient_id, visit_id=visit_id, doctor_id=doctor_id)
 
 
 @app.patch("/documents/{doc_id}")
@@ -397,6 +419,47 @@ def move_document(doc_id: str, body: MoveDoc, user: dict = Depends(current_user)
         patients.set_document_visit(doc_id, old_vid)
         raise HTTPException(status_code=502, detail="Could not move the document; no change made.")
     return patients.get_document(doc_id)
+
+
+# --- document sharing (patient controls what a doctor can see) ---------------
+def _own_document_or_403(user: dict, doc: dict) -> None:
+    if user["role"] != "patient" or user.get("patient_id") != doc["patient_id"]:
+        raise HTTPException(
+            status_code=403, detail="Only the patient can manage document sharing."
+        )
+
+
+@app.get("/documents/{doc_id}/shares")
+def document_shares(doc_id: str, user: dict = Depends(current_user)):
+    doc = patients.get_document(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    _own_document_or_403(user, doc)
+    return patients.list_doc_shares(doc_id)
+
+
+@app.post("/documents/{doc_id}/share")
+def share_document(doc_id: str, body: ShareBody, user: dict = Depends(current_user)):
+    doc = patients.get_document(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    _own_document_or_403(user, doc)
+    d = auth.get_user(body.doctor_id)
+    if d is None or d["role"] != "doctor":
+        raise HTTPException(status_code=400, detail="Unknown doctor.")
+    patients.share_document(doc_id, body.doctor_id)
+    patients.link_doctor_patient(body.doctor_id, doc["patient_id"])  # so they can open the patient
+    return {"shared": doc_id, "doctor_id": body.doctor_id}
+
+
+@app.delete("/documents/{doc_id}/share/{doctor_id}")
+def unshare_document(doc_id: str, doctor_id: str, user: dict = Depends(current_user)):
+    doc = patients.get_document(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    _own_document_or_403(user, doc)
+    patients.unshare_document(doc_id, doctor_id)
+    return {"unshared": doc_id, "doctor_id": doctor_id}
 
 
 @app.delete("/documents/{doc_id}")
@@ -504,6 +567,7 @@ def ask(patient_id: str, body: AskRequest, user: dict = Depends(current_user)):
         lambda: rag_ask(
             patient_id, body.question, role=user["role"],
             visit_id=body.visit_id, history=body.history,
+            doc_ids=_doc_scope(user, patient_id),
         )
     )
 

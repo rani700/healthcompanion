@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Document, User, Visit } from "../api";
+import type { Doctor, Document, User, Visit } from "../api";
 
 // A patient may delete their own upload only within this window (mirror of the
 // server rule) — used to decide whether to show the delete control.
@@ -11,6 +11,8 @@ type Props = {
   activeVisitId: string | null;
   busy: boolean;
   currentUser: User;
+  doctors: Doctor[];
+  sharesByDoc: Record<string, string[]>;
   onUpload: (
     file: File,
     docType: string,
@@ -19,6 +21,8 @@ type Props = {
   ) => Promise<void>;
   onMove: (docId: string, visitId: string | null) => Promise<void>;
   onDelete: (docId: string) => Promise<void>;
+  onShare: (docId: string, doctorId: string) => Promise<void>;
+  onUnshare: (docId: string, doctorId: string) => Promise<void>;
 };
 
 const DOC_TYPES = [
@@ -41,10 +45,17 @@ export default function DocumentsPanel({
   activeVisitId,
   busy,
   currentUser,
+  doctors,
+  sharesByDoc,
   onUpload,
   onMove,
   onDelete,
+  onShare,
+  onUnshare,
 }: Props) {
+  const isPatient = currentUser.role === "patient";
+  const doctorName = (id: string) =>
+    doctors.find((d) => d.id === id)?.name ?? "doctor";
   // Doctors can never delete; a patient may delete their own recent upload only.
   const canDelete = (d: Document) =>
     currentUser.role === "patient" &&
@@ -57,15 +68,22 @@ export default function DocumentsPanel({
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // When a visit is focused, default uploads to that visit.
-  useEffect(() => {
-    setVisitId(activeVisitId ?? "");
-  }, [activeVisitId]);
-
   // Visits selectable for an upload: open ones, plus the focused visit.
   const selectable = visits.filter(
     (v) => v.status === "open" || v.id === activeVisitId,
   );
+  const openVisitsKey = visits
+    .filter((v) => v.status === "open")
+    .map((v) => v.id)
+    .join(",");
+
+  // Default the upload to the focused visit, else the most recent open visit, so
+  // documents land in the episode you're working on (not stranded in "General").
+  useEffect(() => {
+    const firstOpen = visits.find((v) => v.status === "open")?.id ?? "";
+    setVisitId(activeVisitId ?? firstOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVisitId, openVisitsKey]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -153,42 +171,87 @@ export default function DocumentsPanel({
       </form>
 
       <ul className="doc-list">
-        {documents.map((d) => (
-          <li key={d.id} className="doc">
-            <span className="doc-glyph">{TYPE_GLYPH[d.doc_type] ?? "▤"}</span>
-            <span className="doc-meta">
-              <span className="doc-name">{d.filename}</span>
-              <span className="doc-sub">
-                {d.doc_type} · {d.doc_date || "undated"}
-              </span>
-            </span>
-            <select
-              className="doc-move"
-              value={d.visit_id ?? ""}
-              onChange={(e) => onMove(d.id, e.target.value || null)}
-              aria-label="File this document under a visit"
-              title="Move to a visit"
-            >
-              <option value="">General</option>
-              {visits.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.title}
-                  {v.status === "closed" ? " (closed)" : ""}
-                </option>
-              ))}
-            </select>
-            {canDelete(d) && (
-              <button
-                className="doc-delete"
-                onClick={() => onDelete(d.id)}
-                title="Delete (within 1 hour of upload)"
-                aria-label="Delete document"
-              >
-                ✕
-              </button>
-            )}
-          </li>
-        ))}
+        {documents.map((d) => {
+          const shared = sharesByDoc[d.id] || [];
+          const shareable = doctors.filter((dr) => !shared.includes(dr.id));
+          return (
+            <li key={d.id} className="doc">
+              <div className="doc-top">
+                <span className="doc-glyph">{TYPE_GLYPH[d.doc_type] ?? "▤"}</span>
+                <span className="doc-meta">
+                  <span className="doc-name">{d.filename}</span>
+                  <span className="doc-sub">
+                    {d.doc_type} · {d.doc_date || "undated"}
+                  </span>
+                </span>
+                <select
+                  className="doc-move"
+                  value={d.visit_id ?? ""}
+                  onChange={(e) => onMove(d.id, e.target.value || null)}
+                  aria-label="File this document under a visit"
+                  title="Move to a visit"
+                >
+                  <option value="">General</option>
+                  {visits.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.title}
+                      {v.status === "closed" ? " (closed)" : ""}
+                    </option>
+                  ))}
+                </select>
+                {canDelete(d) && (
+                  <button
+                    className="doc-delete"
+                    onClick={() => onDelete(d.id)}
+                    title="Delete (within 1 hour of upload)"
+                    aria-label="Delete document"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {isPatient && (
+                <div className="doc-share">
+                  <span className="doc-share-label">🔒 Shared with</span>
+                  {shared.length === 0 && (
+                    <span className="doc-share-none">no one (private)</span>
+                  )}
+                  {shared.map((docId) => (
+                    <span key={docId} className="share-chip">
+                      {doctorName(docId)}
+                      <button
+                        onClick={() => onUnshare(d.id, docId)}
+                        title="Stop sharing"
+                        aria-label="Stop sharing"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  {shareable.length > 0 && (
+                    <select
+                      className="doc-share-add"
+                      value=""
+                      onChange={(e) =>
+                        e.target.value && onShare(d.id, e.target.value)
+                      }
+                      aria-label="Share with a doctor"
+                    >
+                      <option value="">+ Share with…</option>
+                      {shareable.map((dr) => (
+                        <option key={dr.id} value={dr.id}>
+                          {dr.name}
+                          {dr.specialty ? ` — ${dr.specialty}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+            </li>
+          );
+        })}
         {documents.length === 0 && (
           <li className="empty-hint">No records ingested for this patient.</li>
         )}

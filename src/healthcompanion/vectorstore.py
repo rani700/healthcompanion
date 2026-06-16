@@ -39,6 +39,15 @@ def _keywords(text: str) -> list[str]:
     return out[:8]
 
 
+def _where(patient_id, visit_id=None, doc_ids=None):
+    conds: list[dict] = [{"patient_id": patient_id}]
+    if visit_id:
+        conds.append({"visit_id": visit_id})
+    if doc_ids is not None:
+        conds.append({"doc_id": {"$in": list(doc_ids)}})
+    return conds[0] if len(conds) == 1 else {"$and": conds}
+
+
 def _contains_filter(terms: list[str]):
     """Chroma where_document filter matching any term (case variants)."""
     clauses = []
@@ -159,19 +168,20 @@ def update_doc_visit(patient_id: str, doc_id: str, visit_id: str | None) -> int:
     return len(ids)
 
 
-def get_all_chunks(patient_id: str, limit: int = 60, visit_id: str | None = None):
+def get_all_chunks(
+    patient_id: str, limit: int = 60, visit_id: str | None = None, doc_ids=None
+):
     """Return up to ``limit`` stored chunks for a patient (for summarization).
 
-    Pass ``visit_id`` to restrict to a single visit's documents.
+    Pass ``visit_id`` to restrict to one visit, and ``doc_ids`` to restrict to a
+    set of documents (privacy scoping for a doctor's view).
     """
+    if doc_ids is not None and not doc_ids:
+        return []
     col = _collection(patient_id)
     if col.count() == 0:
         return []
-    # Always constrain to the patient; AND the visit when scoping (defense-in-depth).
-    if visit_id:
-        where = {"$and": [{"patient_id": patient_id}, {"visit_id": visit_id}]}
-    else:
-        where = {"patient_id": patient_id}
+    where = _where(patient_id, visit_id, doc_ids)
     res = col.get(include=["documents", "metadatas"], limit=limit, where=where)
     docs = res.get("documents") or []
     metas = res.get("metadatas") or []
@@ -206,24 +216,24 @@ def candidates(
     query_embedding: list[float],
     query_text: str | None = None,
     visit_id: str | None = None,
+    doc_ids=None,
     n: int | None = None,
 ):
     """Hybrid retrieval: fuse vector (semantic) and keyword (exact-term) matches
     via Reciprocal Rank Fusion. Returns a candidate pool (each with ``embedding``
     and a unified cosine ``distance``) for the caller to MMR/rerank into top_k.
 
-    Always constrained to the patient; ANDed with ``visit_id`` when scoping.
+    Constrained to the patient; ANDed with ``visit_id`` and/or an allowed
+    ``doc_ids`` set (privacy scoping) when given.
     """
+    if doc_ids is not None and not doc_ids:
+        return []
     col = _collection(patient_id)
     count = col.count()
     if count == 0:
         return []
     n = min(n or config.RAG_CANDIDATES, count)
-    where = (
-        {"$and": [{"patient_id": patient_id}, {"visit_id": visit_id}]}
-        if visit_id
-        else {"patient_id": patient_id}
-    )
+    where = _where(patient_id, visit_id, doc_ids)
 
     pool: dict[str, dict] = {}
 

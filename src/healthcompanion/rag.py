@@ -98,12 +98,13 @@ def ask(
     top_k: int = config.TOP_K,
     visit_id: str | None = None,
     history: list[dict[str, str]] | None = None,
+    doc_ids=None,
 ) -> dict[str, Any]:
     """Answer a question about one patient's records.
 
-    Pass ``visit_id`` to restrict the answer to a single visit's documents, and
-    ``history`` (recent {role, text} turns, never stored) to support follow-ups.
-    Returns {answer, sources, used_chunks}. Raises if the patient is unknown.
+    Pass ``visit_id`` to restrict to one visit, ``doc_ids`` to restrict to an
+    allowed document set (privacy scoping), and ``history`` (recent {role, text}
+    turns, never stored) for follow-ups. Returns {answer, sources, used_chunks}.
     """
     if patients.get_patient(patient_id) is None:
         raise ValueError(f"Unknown patient: {patient_id}")
@@ -118,7 +119,7 @@ def ask(
 
     q_vec = embed_query(retrieval_text)
     cands = vectorstore.candidates(
-        patient_id, q_vec, query_text=retrieval_text, visit_id=visit_id
+        patient_id, q_vec, query_text=retrieval_text, visit_id=visit_id, doc_ids=doc_ids
     )
 
     # Nothing stored, or even the closest chunk is too far -> honest not-found.
@@ -179,22 +180,27 @@ treatment. If the records are sparse, say what little is known. Keep it under
 180 words."""
 
 
-def summarize_patient(patient_id: str, refresh: bool = False) -> dict[str, Any]:
+def summarize_patient(
+    patient_id: str, refresh: bool = False, doc_ids=None
+) -> dict[str, Any]:
     """Generate a short clinical summary from a patient's stored records.
 
-    Cached and only regenerated when the patient's document set changes (or when
-    ``refresh`` forces it), so opening a patient doesn't re-run the model.
+    The patient's full summary is cached (regenerated when documents change). A
+    doctor-scoped summary (``doc_ids`` given) is generated fresh over only the
+    visible documents and is never cached (to avoid leaking the full record).
     """
     if patients.get_patient(patient_id) is None:
         raise ValueError(f"Unknown patient: {patient_id}")
 
-    sig = patients.docs_fingerprint(patient_id)
-    if not refresh:
-        cached = patients.get_cached_summary(patient_id)
-        if cached and cached[0] and cached[1] == sig:
-            return {"summary": cached[0], "has_records": True, "cached": True}
+    scoped = doc_ids is not None
+    if not scoped:
+        sig = patients.docs_fingerprint(patient_id)
+        if not refresh:
+            cached = patients.get_cached_summary(patient_id)
+            if cached and cached[0] and cached[1] == sig:
+                return {"summary": cached[0], "has_records": True, "cached": True}
 
-    chunks = vectorstore.get_all_chunks(patient_id)
+    chunks = vectorstore.get_all_chunks(patient_id, doc_ids=doc_ids)
     if not chunks:
         return {"summary": "", "has_records": False, "cached": False}
 
@@ -213,7 +219,8 @@ def summarize_patient(patient_id: str, refresh: bool = False) -> dict[str, Any]:
         )
     )
     summary = (response.text or "").strip()
-    patients.set_cached_summary(patient_id, summary, sig)
+    if not scoped:
+        patients.set_cached_summary(patient_id, summary, sig)
     return {"summary": summary, "has_records": True, "cached": False}
 
 

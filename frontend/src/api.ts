@@ -202,6 +202,15 @@ export const api = {
       method: "DELETE",
     });
   },
+  documentShares(docId: string) {
+    return request<string[]>(`/documents/${docId}/shares`);
+  },
+  shareDocument(docId: string, doctorId: string) {
+    return request(`/documents/${docId}/share`, jsonBody("POST", { doctor_id: doctorId }));
+  },
+  unshareDocument(docId: string, doctorId: string) {
+    return request(`/documents/${docId}/share/${doctorId}`, { method: "DELETE" });
+  },
   uploadDocument(
     patientId: string,
     file: File,

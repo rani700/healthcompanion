@@ -958,14 +958,63 @@ button:disabled {
 }
 .doc {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 12px;
   border-radius: 10px;
   transition: background 0.16s ease;
 }
 .doc:hover {
   background: var(--surface-raised);
+}
+.doc-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.doc-share {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 44px;
+  font-size: 12px;
+}
+.doc-share-label {
+  color: var(--ink-mute);
+  letter-spacing: 0.02em;
+}
+.doc-share-none {
+  color: var(--line-strong);
+  font-style: italic;
+}
+.share-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--green-wash);
+  color: var(--green-deep);
+  font-weight: 600;
+  padding: 2px 4px 2px 9px;
+  border-radius: 999px;
+}
+.share-chip button {
+  border: 0;
+  background: transparent;
+  color: var(--green-deep);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 3px;
+}
+.share-chip button:hover {
+  color: var(--amber);
+}
+.doc-share-add {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  color: var(--green-deep);
 }
 .doc-glyph {
   flex: none;

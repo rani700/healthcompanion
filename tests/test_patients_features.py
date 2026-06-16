@@ -20,7 +20,7 @@ def client(tmp_path, monkeypatch):
     # Don't call Gemini for summaries in tests.
     monkeypatch.setattr(
         api, "rag_summarize",
-        lambda pid, refresh=False: {"summary": "stub summary", "has_records": True},
+        lambda pid, refresh=False, doc_ids=None: {"summary": "stub summary", "has_records": True},
     )
     return api.app
 
@@ -97,7 +97,7 @@ def test_summary_caching(monkeypatch, tmp_path):
     monkeypatch.setattr(rag, "get_client", lambda: _Client())
     monkeypatch.setattr(
         vectorstore, "get_all_chunks",
-        lambda pid, limit=60, visit_id=None: [
+        lambda pid, limit=60, visit_id=None, doc_ids=None: [
             {"text": "x", "doc_type": "rx", "doc_date": "", "filename": "f"}
         ],
     )

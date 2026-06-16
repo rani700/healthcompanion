@@ -4,6 +4,7 @@ import { api, type Demographics, type Patient } from "../api";
 type Props = {
   patient: Patient;
   refreshSignal?: number;
+  hasDocuments: boolean;
   onSaved: (p: Patient) => void;
 };
 
@@ -21,17 +22,20 @@ function ageFromDob(dob: string | null): string | null {
 export default function PatientSummary({
   patient,
   refreshSignal,
+  hasDocuments,
   onSaved,
 }: Props) {
   const [summary, setSummary] = useState<string>("");
   const [hasRecords, setHasRecords] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [errored, setErrored] = useState(false);
   const [editing, setEditing] = useState(false);
 
   // Fetch the (cached) summary when the patient changes or records change.
   useEffect(() => {
     let live = true;
     setLoading(true);
+    setErrored(false);
     api
       .getSummary(patient.id)
       .then((r) => {
@@ -39,7 +43,12 @@ export default function PatientSummary({
         setSummary(r.summary);
         setHasRecords(r.has_records);
       })
-      .catch(() => live && setSummary(""))
+      .catch(() => {
+        if (live) {
+          setSummary("");
+          setErrored(true);
+        }
+      })
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
@@ -48,12 +57,13 @@ export default function PatientSummary({
 
   async function refresh() {
     setLoading(true);
+    setErrored(false);
     try {
       const r = await api.getSummary(patient.id, true);
       setSummary(r.summary);
       setHasRecords(r.has_records);
     } catch {
-      /* ignore */
+      setErrored(true);
     } finally {
       setLoading(false);
     }
@@ -101,7 +111,7 @@ export default function PatientSummary({
           <button
             className="sd-edit"
             onClick={refresh}
-            disabled={loading || !hasRecords}
+            disabled={loading || (!hasRecords && !hasDocuments)}
             title="Regenerate summary"
           >
             Refresh
@@ -116,12 +126,21 @@ export default function PatientSummary({
             </span>
             Generating summary…
           </div>
-        ) : !hasRecords ? (
+        ) : summary ? (
+          <p className="summary-text">{summary}</p>
+        ) : errored ? (
+          <p className="summary-empty">
+            Couldn't generate the summary right now (the AI may be busy). Tap Refresh
+            to try again.
+          </p>
+        ) : hasDocuments ? (
+          <p className="summary-empty">
+            Preparing the summary from your documents — tap Refresh in a moment.
+          </p>
+        ) : (
           <p className="summary-empty">
             No records yet — upload a document to generate a summary.
           </p>
-        ) : (
-          <p className="summary-text">{summary}</p>
         )}
       </div>
     </section>
