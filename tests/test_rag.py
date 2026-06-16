@@ -49,6 +49,37 @@ def test_relevance_gate_blocks_far_matches(monkeypatch):
     assert out["used_chunks"] == 0 and "couldn't find" in out["answer"].lower()
 
 
+def test_overview_question_uses_whole_record(monkeypatch):
+    """Broad questions summarize the whole record instead of narrow retrieval."""
+    monkeypatch.setattr(patients, "get_patient", lambda pid: {"id": pid})
+    called = {}
+
+    def _all(pid, visit_id=None, doc_ids=None):
+        called["all"] = True
+        return [{"text": "HbA1c 8.1%", "doc_type": "lab", "doc_date": "2024", "filename": "f"}]
+
+    monkeypatch.setattr(vectorstore, "get_all_chunks", _all)
+
+    def _no_retrieval(*a, **k):
+        raise AssertionError("overview must not use narrow retrieval")
+
+    monkeypatch.setattr(vectorstore, "candidates", _no_retrieval)
+
+    class _Resp:
+        text = "Recent results: HbA1c 8.1% (source: f, 2024)."
+
+    class _Models:
+        def generate_content(self, *a, **k):
+            return _Resp()
+
+    class _Client:
+        models = _Models()
+
+    monkeypatch.setattr(rag, "get_client", lambda: _Client())
+    out = rag.ask("p", "what is my medical history?")
+    assert called.get("all") and "HbA1c" in out["answer"] and out["used_chunks"] == 1
+
+
 def test_history_contextualizes_retrieval(monkeypatch):
     monkeypatch.setattr(patients, "get_patient", lambda pid: {"id": pid})
     captured = {}

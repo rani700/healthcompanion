@@ -63,20 +63,40 @@ _ROLE_GUIDANCE = {
 
 _SYSTEM_TEMPLATE = """You are HealthCompanion, a medical records assistant.
 
-Answer the question using ONLY the patient's record excerpts provided below.
+The excerpts below ARE this patient's own uploaded records — treat them as this
+patient's medical record even if a person's name written inside a document differs
+(documents may be scanned or mis-labelled; do not refuse over a name mismatch).
+
+Answer the question using ONLY these excerpts.
 Rules:
-- Do NOT use outside knowledge or guess. If the answer is not in the excerpts,
-  reply exactly: "I couldn't find that in your records."
-- Cite the source for each fact as (source: <filename>, <date>) using the excerpt's
-  document type and date.
-- Never invent medications, dosages, dates, or values.
-- Do not provide diagnoses or new treatment recommendations beyond what the
-  records state; for medical decisions, advise consulting a qualified clinician.
+- For broad questions (medical history, current problems, overview, "is anything
+  wrong"), SUMMARISE what the records actually show — list conditions, abnormal
+  results, and medications present. Do not refuse just because the question is general.
+- Use ONLY the excerpts; never use outside knowledge or invent medications,
+  dosages, dates, or values.
+- Cite the source for each fact as (source: <filename>, <date>).
+- Reply exactly "I couldn't find that in your records." ONLY when the SPECIFIC
+  information asked for is genuinely absent from the excerpts.
+- Do not give new diagnoses or treatment beyond what the records state; for medical
+  decisions, advise consulting a qualified clinician.
 - {role_guidance}
 
 Patient record excerpts:
 {context}
 """
+
+# Questions that want an overview of the whole record rather than a specific fact.
+_OVERVIEW_HINTS = (
+    "history", "summary", "summarise", "summarize", "overview", "problem",
+    "anything wrong", "what's wrong", "whats wrong", "my health", "my record",
+    "records", "everything", "all my", "condition", "diagnos", "medication",
+    "tell me about", "any issue", "any issues", "her health", "his health",
+)
+
+
+def _is_overview(question: str) -> bool:
+    q = (question or "").lower()
+    return any(h in q for h in _OVERVIEW_HINTS)
 
 
 def _build_context(hits: list[dict[str, Any]]) -> str:
@@ -112,27 +132,32 @@ def ask(
     role = role if role in _ROLE_GUIDANCE else "patient"
     history = (history or [])[-config.RAG_HISTORY_TURNS:]
 
-    # Contextualize the retrieval query with the previous user turn so follow-ups
-    # like "what's the dosage?" still retrieve the right chunks.
-    prev_user = next((m["text"] for m in reversed(history) if m.get("role") == "user"), "")
-    retrieval_text = f"{prev_user} {question}".strip() if prev_user else question
-
-    q_vec = embed_query(retrieval_text)
-    cands = vectorstore.candidates(
-        patient_id, q_vec, query_text=retrieval_text, visit_id=visit_id, doc_ids=doc_ids
-    )
-
-    # Nothing stored, or even the closest chunk is too far -> honest not-found.
-    if not cands or min(c["distance"] for c in cands) > config.RAG_MAX_DISTANCE:
-        return {"answer": _NOT_FOUND, "sources": [], "used_chunks": 0}
-
-    # Select top_k: opt-in LLM re-rank for sharper ordering, else MMR for diversity.
-    if config.RAG_RERANK:
-        hits = _llm_rerank(question, cands, top_k)
+    if _is_overview(question):
+        # Broad question -> answer over the whole (scoped) record, not narrow top-k.
+        hits = vectorstore.get_all_chunks(patient_id, visit_id=visit_id, doc_ids=doc_ids)
+        if not hits:
+            return {"answer": _NOT_FOUND, "sources": [], "used_chunks": 0}
     else:
-        hits = vectorstore._mmr_select(q_vec, cands, top_k, config.RAG_MMR_LAMBDA)
-    for h in hits:
-        h.pop("embedding", None)
+        # Contextualize the retrieval query with the previous user turn so follow-ups
+        # like "what's the dosage?" still retrieve the right chunks.
+        prev_user = next((m["text"] for m in reversed(history) if m.get("role") == "user"), "")
+        retrieval_text = f"{prev_user} {question}".strip() if prev_user else question
+
+        q_vec = embed_query(retrieval_text)
+        cands = vectorstore.candidates(
+            patient_id, q_vec, query_text=retrieval_text, visit_id=visit_id, doc_ids=doc_ids
+        )
+        # Nothing stored, or even the closest chunk is too far -> honest not-found.
+        if not cands or min(c["distance"] for c in cands) > config.RAG_MAX_DISTANCE:
+            return {"answer": _NOT_FOUND, "sources": [], "used_chunks": 0}
+
+        # Opt-in LLM re-rank for sharper ordering, else MMR for diversity.
+        if config.RAG_RERANK:
+            hits = _llm_rerank(question, cands, top_k)
+        else:
+            hits = vectorstore._mmr_select(q_vec, cands, top_k, config.RAG_MMR_LAMBDA)
+        for h in hits:
+            h.pop("embedding", None)
 
     system = _SYSTEM_TEMPLATE.format(
         role_guidance=_ROLE_GUIDANCE[role],
