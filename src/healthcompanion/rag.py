@@ -70,8 +70,23 @@ patient's medical record even if a person's name written inside a document diffe
 Answer the question using ONLY these excerpts.
 Rules:
 - For broad questions (medical history, current problems, overview, "is anything
-  wrong"), SUMMARISE what the records actually show — list conditions, abnormal
-  results, and medications present. Do not refuse just because the question is general.
+  wrong"), SUMMARISE only what is EXPLICITLY written — list the conditions,
+  results, and medications the document actually names. Do not refuse just
+  because the question is general.
+- REPORT, DON'T INTERPRET. State only what the text literally says. Do NOT infer
+  a diagnosis, and do NOT turn a raw value, symptom, or abbreviation into a named
+  condition. For example: never call an unlabelled number like "204/100" a
+  "blood pressure reading" or "high blood pressure" unless the document literally
+  labels it as blood pressure; never report a confirmed "kidney stone" from a
+  word like "calculi" unless the document says so in words.
+- UNCERTAIN SCANS: text marked "[?]" was hard to read on a scan. Treat anything
+  marked "[?]" — and any single ambiguous handwritten word — as UNCERTAIN. Say it
+  is unclear and suggest opening the original document to confirm; never present
+  it as an established fact or diagnosis.
+- If the question asks whether the patient HAS a condition, answer "yes" only when
+  the records explicitly name that diagnosis. Otherwise say the records do not
+  confirm it, describe what is literally written, and suggest verifying against
+  the original document.
 - Use ONLY the excerpts; never use outside knowledge or invent medications,
   dosages, dates, or values.
 - Cite the source for each fact as (source: <filename>, <date>).
@@ -208,7 +223,13 @@ for it): Active medications, Conditions/diagnoses, Recent results/findings,
 Notable notes. Use short bullet points, include dates where available, and cite
 nothing you cannot see in the excerpts. Do NOT diagnose or recommend new
 treatment. If the records are sparse, say what little is known. Keep it under
-180 words."""
+180 words.
+
+Report only what is EXPLICITLY written — do not interpret. Never turn a raw value,
+symptom, or abbreviation into a named diagnosis, and never label an unlabelled
+number (e.g. "204/100") as a measurement like blood pressure unless the document
+says so. Text marked "[?]" was unclear on the scan: mark it as uncertain rather
+than stating it as fact."""
 
 
 def summarize_patient(

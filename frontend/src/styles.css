@@ -1092,7 +1092,10 @@ button:disabled {
 /* ---------- Ask / conversation ---------- */
 .thread {
   flex: 1;
-  min-height: 320px;
+  /* min-height:0 lets the flex child shrink so its own overflow scrolls; the
+     max-height caps the conversation so chatting can't grow the page endlessly. */
+  min-height: 0;
+  max-height: 58vh;
   overflow-y: auto;
   padding: 20px;
   display: flex;
