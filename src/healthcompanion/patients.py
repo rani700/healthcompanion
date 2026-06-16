@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS documents (
     ingested_at TEXT NOT NULL,
     n_chunks    INTEGER NOT NULL,
     visit_id    TEXT,
-    storage_path TEXT
+    storage_path TEXT,
+    first_shared_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_documents_patient ON documents(patient_id);
 CREATE TABLE IF NOT EXISTS care_relationships (
@@ -83,6 +84,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE documents ADD COLUMN uploaded_by TEXT")
     if "storage_path" not in dcols:
         conn.execute("ALTER TABLE documents ADD COLUMN storage_path TEXT")
+    if "first_shared_at" not in dcols:
+        conn.execute("ALTER TABLE documents ADD COLUMN first_shared_at TEXT")
     # Back-fill activity time for pre-existing patients so they aren't treated
     # as instantly inactive.
     conn.execute(
@@ -426,11 +429,19 @@ def visible_doc_ids_for_doctor(patient_id: str, doctor_id: str) -> list[str]:
 
 # --- document sharing (patient -> doctor) -----------------------------------
 def share_document(doc_id: str, doctor_id: str) -> None:
+    now = _now()
     with _connect() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO document_shares (doc_id, doctor_id, created_at) "
             "VALUES (?, ?, ?)",
-            (doc_id, doctor_id, _now()),
+            (doc_id, doctor_id, now),
+        )
+        # Stamp the first-ever share time once; it is never cleared, so the
+        # deletion lock survives a later unshare (no share/unshare loophole).
+        conn.execute(
+            "UPDATE documents SET first_shared_at = ? "
+            "WHERE id = ? AND first_shared_at IS NULL",
+            (now, doc_id),
         )
 
 
@@ -449,3 +460,14 @@ def list_doc_shares(doc_id: str) -> list[str]:
             "SELECT doctor_id FROM document_shares WHERE doc_id = ?", (doc_id,)
         ).fetchall()
     return [r["doctor_id"] for r in rows]
+
+
+def earliest_share_time(doc_id: str) -> str | None:
+    """When the document was FIRST ever shared with a doctor (ISO ts), or None if
+    it has never been shared. Stamped once and never cleared, so the deletion
+    lock survives a later unshare. Deletion locks a few hours after this moment."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT first_shared_at FROM documents WHERE id = ?", (doc_id,)
+        ).fetchone()
+    return row["first_shared_at"] if row and row["first_shared_at"] else None

@@ -237,6 +237,36 @@ def _check_dob(dob: str | None) -> None:
         raise HTTPException(status_code=400, detail="Date of birth can't be in the future.")
 
 
+def _seconds_since(iso_ts: str | None) -> float:
+    """Age in seconds of an ISO timestamp; +inf if missing/unparseable."""
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(iso_ts)).total_seconds()
+    except Exception:
+        return float("inf")
+
+
+def _patient_delete_block(doc: dict, user: dict) -> str | None:
+    """Return a refusal reason if this patient may NOT delete this document, else
+    None. A patient may delete their OWN upload; while it is still private it can
+    be removed anytime, but once shared with a doctor it locks a few hours later."""
+    if user["role"] != "patient" or user.get("patient_id") != doc["patient_id"]:
+        return "You can only delete documents in your own record."
+    if doc.get("uploaded_by") != user["id"]:
+        return "You can only delete documents you uploaded."
+    shared_at = patients.earliest_share_time(doc["id"])
+    if shared_at is not None and _seconds_since(shared_at) > config.SHARE_DELETE_WINDOW_SECONDS:
+        hrs = config.SHARE_DELETE_WINDOW_SECONDS // 3600
+        return (
+            f"This document was shared with a doctor more than {hrs} hours ago and "
+            "is now part of their record, so it can no longer be deleted."
+        )
+    return None
+
+
+def _can_patient_delete(doc: dict, user: dict) -> bool:
+    return _patient_delete_block(doc, user) is None
+
+
 def _doc_scope(user: dict, patient_id: str):
     """None for a patient (their full record); for a doctor, the list of document
     ids they may see (in their visits, uploaded by them, or shared with them)."""
@@ -444,9 +474,12 @@ def list_documents(
     # A doctor sees only documents in their visits / uploaded by them / shared.
     doctor_id = user["id"] if user["role"] == "doctor" else None
     docs = patients.list_documents(patient_id, visit_id=visit_id, doctor_id=doctor_id)
-    # Expose only whether an original file exists, never the server path.
     for d in docs:
+        # Expose only whether an original file exists, never the server path.
         d["has_file"] = bool(d.pop("storage_path", None))
+        # Whether the requesting patient may still delete this document.
+        d["can_delete"] = _can_patient_delete(d, user)
+        d.pop("first_shared_at", None)  # internal: drives the delete lock
     return docs
 
 
@@ -474,6 +507,8 @@ def move_document(doc_id: str, body: MoveDoc, user: dict = Depends(current_user)
     moved = patients.get_document(doc_id)
     if moved:
         moved["has_file"] = bool(moved.pop("storage_path", None))
+        moved["can_delete"] = _can_patient_delete(moved, user)
+        moved.pop("first_shared_at", None)
     return moved
 
 
@@ -520,8 +555,9 @@ def unshare_document(doc_id: str, doctor_id: str, user: dict = Depends(current_u
 
 @app.delete("/documents/{doc_id}")
 def delete_document(doc_id: str, user: dict = Depends(current_user)):
-    """Delete a document. Doctors can NEVER delete; a patient may delete their
-    OWN upload only within DOC_DELETE_WINDOW_SECONDS (accidental upload)."""
+    """Delete a document. Doctors can NEVER delete. A patient may delete their
+    OWN upload: anytime while it is still private, but only within
+    SHARE_DELETE_WINDOW_SECONDS once it has been shared with a doctor."""
     doc = patients.get_document(doc_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -532,21 +568,9 @@ def delete_document(doc_id: str, user: dict = Depends(current_user)):
             status_code=403,
             detail="Documents are part of the medical record and can't be deleted by a doctor.",
         )
-    # Patient: only their own upload, and only within the time window.
-    if doc.get("uploaded_by") != user["id"]:
-        raise HTTPException(status_code=403, detail="You can only delete documents you uploaded.")
-    ingested = doc.get("ingested_at") or ""
-    try:
-        ts = datetime.fromisoformat(ingested)
-        age = (datetime.now(timezone.utc) - ts).total_seconds()
-    except Exception:
-        age = config.DOC_DELETE_WINDOW_SECONDS + 1  # unparseable -> treat as expired
-    if age > config.DOC_DELETE_WINDOW_SECONDS:
-        mins = config.DOC_DELETE_WINDOW_SECONDS // 60
-        raise HTTPException(
-            status_code=403,
-            detail=f"This document can no longer be deleted (only within {mins} minutes of upload).",
-        )
+    block = _patient_delete_block(doc, user)
+    if block:
+        raise HTTPException(status_code=403, detail=block)
 
     vectorstore.delete_doc_chunks(doc["patient_id"], doc_id)
     patients.delete_document(doc_id)

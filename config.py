@@ -65,9 +65,15 @@ LOGIN_WINDOW_SECONDS = int(os.getenv("HC_LOGIN_WINDOW_SECONDS", "300"))
 RETENTION_DAYS = int(os.getenv("HC_RETENTION_DAYS", "730"))  # ~2 years
 
 # --- Document deletion -------------------------------------------------------
-# A patient may delete their OWN upload only within this window (accidental
-# upload). Doctors can never delete documents.
+# A patient may delete their OWN upload. While the document is still PRIVATE
+# (not shared with any doctor) there is no time limit. Once it has been shared
+# with a doctor, deletion is allowed only within this window after the FIRST
+# share — afterwards it is locked, so a doctor can't have a record they relied
+# on pulled out from under them. Doctors can never delete documents.
 DOC_DELETE_WINDOW_SECONDS = int(os.getenv("HC_DOC_DELETE_WINDOW_SECONDS", "3600"))
+SHARE_DELETE_WINDOW_SECONDS = int(
+    os.getenv("HC_SHARE_DELETE_WINDOW_SECONDS", str(6 * 3600))  # 6 hours
+)
 
 # --- Retrieval / chunking ----------------------------------------------------
 CHUNK_SIZE = 1000

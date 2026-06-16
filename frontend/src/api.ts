@@ -67,6 +67,7 @@ export type Document = {
   visit_id: string | null;
   uploaded_by: string | null;
   has_file?: boolean;
+  can_delete?: boolean;
 };
 
 export type Visit = {

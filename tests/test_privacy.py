@@ -102,6 +102,47 @@ def test_patient_cannot_prescribe(client):
     assert r.status_code == 403
 
 
+def test_delete_locks_after_sharing(client, monkeypatch):
+    """A shared document locks once the share window passes; unsharing can't
+    reopen the window (first_shared_at is permanent)."""
+    import config
+    from healthcompanion import patients
+    monkeypatch.setattr(config, "SHARE_DELETE_WINDOW_SECONDS", 0)  # lock on share
+    da = _doctor(client, "a@x.com")
+    aid = da["user"]["id"]
+    pat = _patient(client)
+    ptok, pid, uid = pat["token"], pat["user"]["patient_id"], pat["user"]["id"]
+    doc_id = patients.add_document(pid, "f.png", "rx", None, 1, uploaded_by=uid)
+
+    # Private (unshared) own upload -> deletable.
+    docs = {d["id"]: d for d in client.get(f"/patients/{pid}/documents", headers=H(ptok)).json()}
+    assert docs[doc_id]["can_delete"] is True
+
+    # Share -> with a zero window it's immediately locked.
+    client.post(f"/documents/{doc_id}/share", json={"doctor_id": aid}, headers=H(ptok))
+    docs = {d["id"]: d for d in client.get(f"/patients/{pid}/documents", headers=H(ptok)).json()}
+    assert docs[doc_id]["can_delete"] is False
+    assert client.delete(f"/documents/{doc_id}", headers=H(ptok)).status_code == 403
+
+    # Unsharing must NOT restore deletability.
+    client.delete(f"/documents/{doc_id}/share/{aid}", headers=H(ptok))
+    assert client.delete(f"/documents/{doc_id}", headers=H(ptok)).status_code == 403
+
+
+def test_delete_allowed_within_share_window(client, monkeypatch):
+    """Just after sharing (inside the window) a patient can still delete."""
+    import config
+    from healthcompanion import patients
+    monkeypatch.setattr(config, "SHARE_DELETE_WINDOW_SECONDS", 3600)
+    da = _doctor(client, "a@x.com")
+    pat = _patient(client)
+    ptok, pid, uid = pat["token"], pat["user"]["patient_id"], pat["user"]["id"]
+    doc_id = patients.add_document(pid, "f.png", "rx", None, 1, uploaded_by=uid)
+    client.post(f"/documents/{doc_id}/share", json={"doctor_id": da["user"]["id"]}, headers=H(ptok))
+    r = client.delete(f"/documents/{doc_id}", headers=H(ptok))
+    assert r.status_code == 200 and r.json()["deleted"] == doc_id
+
+
 def test_view_original_file(client):
     import config
     from healthcompanion import patients
