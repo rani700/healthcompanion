@@ -102,6 +102,38 @@ def test_patient_cannot_prescribe(client):
     assert r.status_code == 403
 
 
+def test_view_original_file(client):
+    import config
+    from healthcompanion import patients
+
+    pat = _patient(client)
+    ptok, pid, uid = pat["token"], pat["user"]["patient_id"], pat["user"]["id"]
+    config.ensure_dirs()
+    f = config.UPLOADS_DIR / "report.txt"
+    f.write_text("UROFLOWMETRY graph data")
+    with_file = patients.add_document(
+        pid, "report.txt", "lab", None, 1, uploaded_by=uid, storage_path=str(f)
+    )
+    no_file = patients.add_document(pid, "drafted.txt", "rx", None, 1, uploaded_by=uid)
+
+    # The list flags which documents have an original, never the server path.
+    docs = {d["id"]: d for d in client.get(f"/patients/{pid}/documents", headers=H(ptok)).json()}
+    assert docs[with_file]["has_file"] is True
+    assert docs[no_file]["has_file"] is False
+    assert "storage_path" not in docs[with_file]
+
+    # Patient can open their original file.
+    r = client.get(f"/documents/{with_file}/file", headers=H(ptok))
+    assert r.status_code == 200 and r.content == b"UROFLOWMETRY graph data"
+
+    # In-app authored doc (no file) -> 404.
+    assert client.get(f"/documents/{no_file}/file", headers=H(ptok)).status_code == 404
+
+    # An unrelated doctor cannot fetch it.
+    other = _doctor(client, "other@x.com")
+    assert client.get(f"/documents/{with_file}/file", headers=H(other["token"])).status_code in (403, 404)
+
+
 def test_document_visibility_and_sharing(client):
     from healthcompanion import patients
     da = _doctor(client, "a@x.com")

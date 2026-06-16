@@ -166,6 +166,22 @@ export default function App() {
     }
   }
 
+  async function viewDoc(docId: string) {
+    // Open the tab synchronously (before the await) so it isn't popup-blocked,
+    // then point it at the fetched blob.
+    const tab = window.open("", "_blank");
+    try {
+      const blob = await api.fetchDocumentBlob(docId);
+      const url = URL.createObjectURL(blob);
+      if (tab) tab.location.href = url;
+      else window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      if (tab) tab.close();
+      handle(e);
+    }
+  }
+
   async function moveDoc(docId: string, visitId: string | null) {
     if (!selectedId) return;
     try {
@@ -370,6 +386,7 @@ export default function App() {
                 sharesByDoc={sharesByDoc}
                 onUpload={upload}
                 onPrescribe={prescribe}
+                onView={viewDoc}
                 onMove={moveDoc}
                 onDelete={deleteDoc}
                 onShare={shareDoc}

@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS documents (
     doc_date    TEXT,
     ingested_at TEXT NOT NULL,
     n_chunks    INTEGER NOT NULL,
-    visit_id    TEXT
+    visit_id    TEXT,
+    storage_path TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_documents_patient ON documents(patient_id);
 CREATE TABLE IF NOT EXISTS care_relationships (
@@ -80,6 +81,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE documents ADD COLUMN visit_id TEXT")
     if "uploaded_by" not in dcols:
         conn.execute("ALTER TABLE documents ADD COLUMN uploaded_by TEXT")
+    if "storage_path" not in dcols:
+        conn.execute("ALTER TABLE documents ADD COLUMN storage_path TEXT")
     # Back-fill activity time for pre-existing patients so they aren't treated
     # as instantly inactive.
     conn.execute(
@@ -347,22 +350,24 @@ def add_document(
     doc_id: str | None = None,
     visit_id: str | None = None,
     uploaded_by: str | None = None,
+    storage_path: str | None = None,
 ) -> str:
     """Record an ingested document and return its id.
 
     Pass ``doc_id`` to use a pre-allocated id (so it matches the vector-store
     chunk ids); otherwise one is generated. ``visit_id`` ties it to a visit;
-    ``uploaded_by`` is the user id who uploaded it (for deletion rules).
+    ``uploaded_by`` is the user id who uploaded it (for deletion rules);
+    ``storage_path`` is the on-disk path of the original file (for viewing it).
     """
     doc_id = doc_id or uuid.uuid4().hex[:12]
     with _connect() as conn:
         conn.execute(
             "INSERT INTO documents "
             "(id, patient_id, filename, doc_type, doc_date, ingested_at, n_chunks, "
-            "visit_id, uploaded_by) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "visit_id, uploaded_by, storage_path) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (doc_id, patient_id, filename, doc_type, doc_date, _now(), n_chunks,
-             visit_id, uploaded_by),
+             visit_id, uploaded_by, storage_path),
         )
     return doc_id
 

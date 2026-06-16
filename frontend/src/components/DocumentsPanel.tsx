@@ -27,6 +27,7 @@ type Props = {
     visitId: string,
   ) => Promise<void>;
   onPrescribe: (draft: PrescriptionDraft) => Promise<void>;
+  onView: (docId: string) => Promise<void>;
   onMove: (docId: string, visitId: string | null) => Promise<void>;
   onDelete: (docId: string) => Promise<void>;
   onShare: (docId: string, doctorId: string) => Promise<void>;
@@ -57,6 +58,7 @@ export default function DocumentsPanel({
   sharesByDoc,
   onUpload,
   onPrescribe,
+  onView,
   onMove,
   onDelete,
   onShare,
@@ -356,6 +358,16 @@ export default function DocumentsPanel({
                     {d.doc_type} · {d.doc_date || "undated"}
                   </span>
                 </span>
+                {d.has_file && (
+                  <button
+                    type="button"
+                    className="doc-view"
+                    onClick={() => onView(d.id)}
+                    title="Open the original report / image"
+                  >
+                    View
+                  </button>
+                )}
                 <select
                   className="doc-move"
                   value={d.visit_id ?? ""}

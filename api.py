@@ -29,6 +29,7 @@ import config
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -442,7 +443,11 @@ def list_documents(
     _authorize_patient(user, patient_id)
     # A doctor sees only documents in their visits / uploaded by them / shared.
     doctor_id = user["id"] if user["role"] == "doctor" else None
-    return patients.list_documents(patient_id, visit_id=visit_id, doctor_id=doctor_id)
+    docs = patients.list_documents(patient_id, visit_id=visit_id, doctor_id=doctor_id)
+    # Expose only whether an original file exists, never the server path.
+    for d in docs:
+        d["has_file"] = bool(d.pop("storage_path", None))
+    return docs
 
 
 @app.patch("/documents/{doc_id}")
@@ -466,7 +471,10 @@ def move_document(doc_id: str, body: MoveDoc, user: dict = Depends(current_user)
         # Keep the catalog and vector store consistent on partial failure.
         patients.set_document_visit(doc_id, old_vid)
         raise HTTPException(status_code=502, detail="Could not move the document; no change made.")
-    return patients.get_document(doc_id)
+    moved = patients.get_document(doc_id)
+    if moved:
+        moved["has_file"] = bool(moved.pop("storage_path", None))
+    return moved
 
 
 # --- document sharing (patient controls what a doctor can see) ---------------
@@ -542,7 +550,40 @@ def delete_document(doc_id: str, user: dict = Depends(current_user)):
 
     vectorstore.delete_doc_chunks(doc["patient_id"], doc_id)
     patients.delete_document(doc_id)
+    sp = doc.get("storage_path")
+    if sp:
+        try:
+            Path(sp).unlink(missing_ok=True)
+        except Exception:
+            pass
     return {"deleted": doc_id}
+
+
+@app.get("/documents/{doc_id}/file")
+def get_document_file(doc_id: str, user: dict = Depends(current_user)):
+    """Serve the original uploaded file (image/PDF) so a doctor can see the actual
+    report — e.g. a uroflowmetry graph — or verify a handwritten prescription.
+    Scoped: patients see their own; doctors only documents visible to them."""
+    doc = patients.get_document(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    _authorize_patient(user, doc["patient_id"])
+    if user["role"] == "doctor":
+        visible = patients.visible_doc_ids_for_doctor(doc["patient_id"], user["id"])
+        if doc_id not in visible:
+            raise HTTPException(status_code=403, detail="You don't have access to this document.")
+    sp = doc.get("storage_path")
+    if not sp or not Path(sp).is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="No original file is stored for this document (it was authored in-app).",
+        )
+    # Inline so the browser previews images/PDFs in a new tab.
+    return FileResponse(
+        sp,
+        filename=doc["filename"],
+        content_disposition_type="inline",
+    )
 
 
 @app.post("/patients/{patient_id}/documents")
@@ -587,7 +628,7 @@ def upload_document(
     try:
         return ingest_document(
             patient_id, dest, doc_type=doc_type, doc_date=doc_date,
-            visit_id=visit_id, uploaded_by=user["id"],
+            visit_id=visit_id, uploaded_by=user["id"], storage_path=str(dest),
         )
     except NotMedicalDocument as e:
         dest.unlink(missing_ok=True)

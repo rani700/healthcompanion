@@ -66,6 +66,7 @@ export type Document = {
   n_chunks: number;
   visit_id: string | null;
   uploaded_by: string | null;
+  has_file?: boolean;
 };
 
 export type Visit = {
@@ -216,6 +217,26 @@ export const api = {
     return request<{ deleted: string }>(`/documents/${docId}`, {
       method: "DELETE",
     });
+  },
+  // Fetch the original file (image/PDF) as a blob — the JWT must travel in a
+  // header, so a plain <a href> can't be used; the caller opens the blob URL.
+  async fetchDocumentBlob(docId: string): Promise<Blob> {
+    const headers = new Headers();
+    if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
+    const res = await fetch(`${BASE}/documents/${docId}/file`, { headers });
+    if (res.status === 401 && authToken) {
+      throw new AuthExpired("Your session has expired. Please sign in again.");
+    }
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        detail = (await res.json()).detail ?? detail;
+      } catch {
+        /* keep statusText */
+      }
+      throw new Error(detail);
+    }
+    return res.blob();
   },
   documentShares(docId: string) {
     return request<string[]>(`/documents/${docId}/shares`);
