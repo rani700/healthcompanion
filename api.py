@@ -19,7 +19,7 @@ import contextlib
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 # Make the src/ package importable.
@@ -191,6 +191,18 @@ def _touch(patient_id: str) -> None:
     patients.touch_patient(patient_id)
 
 
+def _check_dob(dob: str | None) -> None:
+    """Reject malformed or future dates of birth."""
+    if not dob:
+        return
+    try:
+        d = date.fromisoformat(dob)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date of birth.")
+    if d > datetime.now(timezone.utc).date():
+        raise HTTPException(status_code=400, detail="Date of birth can't be in the future.")
+
+
 def _doc_scope(user: dict, patient_id: str):
     """None for a patient (their full record); for a doctor, the list of document
     ids they may see (in their visits, uploaded by them, or shared with them)."""
@@ -233,6 +245,7 @@ def _clear_login_failures(email: str) -> None:
 # --- Auth routes -------------------------------------------------------------
 @app.post("/auth/signup")
 def signup(body: SignupBody):
+    _check_dob(body.dob)
     try:
         user = auth.signup(
             body.email, body.password, body.name, body.role,
@@ -292,6 +305,7 @@ def create_patient(body: CreatePatient, user: dict = Depends(require_doctor)):
             status_code=400,
             detail="Date of birth is required (used to distinguish patients).",
         )
+    _check_dob(body.dob)
     pid = patients.create_patient(
         body.name, dob=body.dob, sex=body.sex, phone=body.phone, address=body.address
     )
@@ -311,6 +325,7 @@ def update_patient(
     patient_id: str, body: UpdatePatient, user: dict = Depends(current_user)
 ):
     _authorize_patient(user, patient_id)
+    _check_dob(body.dob)
     _touch(patient_id)
     return patients.update_patient(patient_id, body.model_dump(exclude_none=True))
 

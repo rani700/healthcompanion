@@ -124,6 +124,7 @@ export default function Login() {
                     <input
                       type="date"
                       value={dob}
+                      max={new Date().toISOString().slice(0, 10)}
                       onChange={(e) => setDob(e.target.value)}
                       required
                     />

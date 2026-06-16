@@ -206,6 +206,7 @@ function EditForm({
         <input
           type="date"
           value={form.dob}
+          max={new Date().toISOString().slice(0, 10)}
           onChange={(e) => set("dob", e.target.value)}
         />
       </label>

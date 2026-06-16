@@ -156,6 +156,7 @@ export default function Sidebar({
               <input
                 type="date"
                 value={dob}
+                max={new Date().toISOString().slice(0, 10)}
                 onChange={(e) => setDob(e.target.value)}
                 aria-label="Date of birth (required)"
                 title="Date of birth (required)"

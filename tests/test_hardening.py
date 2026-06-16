@@ -51,6 +51,15 @@ def test_login_throttle(client):
     assert blocked.status_code == 429
 
 
+def test_future_dob_rejected(client):
+    tok = _doctor(client)
+    r = client.post("/patients", json={"name": "Future", "dob": "2999-01-01"}, headers=H(tok))
+    assert r.status_code == 400
+    s = client.post("/auth/signup", json={"email": "f@x.com", "password": "secret123",
+                                          "name": "F", "role": "patient", "dob": "2999-01-01"})
+    assert s.status_code == 400
+
+
 def test_doctor_cannot_delete_document(client):
     """Doctors can never delete a document, even their own patient's."""
     from healthcompanion import patients
