@@ -77,7 +77,13 @@ def ingest_document(
         doc_date = extracted["date"]
 
     # Guardrail: only genuine medical documents may enter a patient record.
-    assert_medical(text)
+    # It also classifies the document type; use that when the uploader didn't
+    # pick a specific type (left it on "auto"/"other").
+    classification = assert_medical(text)
+    if doc_type in (None, "", "auto", "other"):
+        detected = (classification or {}).get("type")
+        if detected in ("rx", "lab", "imaging", "note", "other"):
+            doc_type = detected
 
     chunks = chunk_text(text)
     if not chunks:

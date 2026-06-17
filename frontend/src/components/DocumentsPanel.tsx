@@ -31,6 +31,7 @@ type Props = {
 };
 
 const DOC_TYPES = [
+  { value: "auto", label: "Auto-detect" },
   { value: "rx", label: "Prescription" },
   { value: "lab", label: "Lab report" },
   { value: "note", label: "Clinical note" },
@@ -40,6 +41,7 @@ const DOC_TYPES = [
 const TYPE_GLYPH: Record<string, string> = {
   rx: "℞",
   lab: "⚗",
+  imaging: "▦",
   note: "✎",
   other: "▤",
 };
@@ -67,7 +69,7 @@ export default function DocumentsPanel({
   // shared with a doctor). Trust its can_delete flag here.
   const canDelete = (d: Document) =>
     currentUser.role === "patient" && d.can_delete === true;
-  const [docType, setDocType] = useState("rx");
+  const [docType, setDocType] = useState("auto");
   const [docDate, setDocDate] = useState("");
   const [visitId, setVisitId] = useState("");
   const [files, setFiles] = useState<File[]>([]);

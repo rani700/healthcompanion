@@ -189,3 +189,67 @@ def test_uploader_date_overrides_detected(env, tmp_path, monkeypatch):
     # An explicit uploader date always wins over the detected one.
     res = ingest.ingest_document(pid, doc, doc_type="lab", doc_date="2020-01-01")
     assert res["doc_date"] == "2020-01-01"
+
+
+def test_embed_batches_large_inputs(monkeypatch):
+    """Documents with many chunks are embedded in batches of <=100 so a large
+    multi-page upload doesn't exceed the embedding API's per-request cap."""
+    from healthcompanion import embed
+
+    sizes: list[int] = []
+
+    class _M:
+        def embed_content(self, model, contents, config=None):
+            sizes.append(len(contents))
+            return _EmbResult([_Emb([0.0]) for _ in contents])
+
+    class _C:
+        models = _M()
+
+    monkeypatch.setattr(embed, "get_client", lambda: _C())
+    out = embed.embed_documents([f"chunk {i}" for i in range(150)])
+    assert len(out) == 150
+    assert sizes == [100, 50]  # split into batches, not one oversized call
+
+
+def test_overview_routing_precision():
+    """Broad questions go to whole-record mode; specific ones stay on precise
+    retrieval even when they contain a clinical word."""
+    from healthcompanion.rag import _is_overview
+
+    # Broad -> overview
+    assert _is_overview("summarize my medical history")
+    assert _is_overview("what is my medical history?")
+    assert _is_overview("what medications am I on?")
+    assert _is_overview("tell me about the patient")
+    assert _is_overview("is anything wrong?")
+    # Specific -> NOT overview (despite containing clinical words)
+    assert not _is_overview("what's my metformin dose?")
+    assert not _is_overview("how should I take bactilizer?")
+    assert not _is_overview("what was my latest blood pressure value?")
+    assert not _is_overview("when do I take my medication?")
+
+
+def test_auto_doc_type_uses_classifier(env, tmp_path, monkeypatch):
+    from healthcompanion import guardrails, patients
+    from healthcompanion.ingest import ingest_document
+
+    monkeypatch.setattr(
+        guardrails, "classify_document",
+        lambda text: {"medical": True, "type": "lab", "reason": "t"},
+    )
+    pid = patients.create_patient("Auto Type")
+    doc = _write_doc(tmp_path, "report.txt", "Hemoglobin 13 g/dL. CBC report.")
+    res = ingest_document(pid, doc, doc_type="auto")
+    assert res["doc_type"] == "lab"  # filled from the classifier
+
+
+def test_explicit_doc_type_not_overridden(env, tmp_path):
+    from healthcompanion import patients
+    from healthcompanion.ingest import ingest_document
+
+    pid = patients.create_patient("Explicit Type")
+    doc = _write_doc(tmp_path, "rx.txt", "Aspirin 75mg.")
+    # env's classifier says "rx", but an explicit choice must be kept.
+    res = ingest_document(pid, doc, doc_type="note")
+    assert res["doc_type"] == "note"

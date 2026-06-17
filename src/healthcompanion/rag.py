@@ -6,6 +6,7 @@ retrieve -> build grounded context -> generate (role-aware, with citations).
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import config
@@ -110,18 +111,42 @@ Patient record excerpts:
 {context}
 """
 
-# Questions that want an overview of the whole record rather than a specific fact.
-_OVERVIEW_HINTS = (
-    "history", "summary", "summarise", "summarize", "overview", "problem",
-    "anything wrong", "what's wrong", "whats wrong", "my health", "my record",
-    "records", "everything", "all my", "condition", "diagnos", "medication",
-    "tell me about", "any issue", "any issues", "her health", "his health",
+# Phrases that clearly ask for the big picture of the whole record.
+_OVERVIEW_PHRASES = (
+    "summary", "summarise", "summarize", "overview", "medical history",
+    "health history", "my history", "patient history", "everything",
+    "all my record", "all records", "whole record", "entire record",
+    "anything wrong", "what's wrong", "whats wrong", "is anything wrong",
+    "my health", "overall health", "her health", "his health", "their health",
+    "my record", "my records", "tell me about",
+)
+
+# A broad "list all the X" enumeration (X = a class of clinical items).
+_ENUM_RE = re.compile(
+    r"\b(what|which|list|any|all)\b.*\b("
+    r"conditions?|medications?|medicines?|drugs?|prescriptions?|diagnos\w+|"
+    r"problems?|allergies|illness\w*|tests?|investigations?|reports?"
+    r")\b"
+)
+# Markers that the question targets a SPECIFIC detail, not the whole record — so
+# even with a broad word present, route it through precise retrieval.
+_SPECIFIC_HINTS = (
+    "dose", "dosage", "how much", "how many", "how should", "how do i take",
+    "how to take", "when ", "what time", " mg", " ml", "frequency", "last ",
+    "latest", "most recent", "value of", "result of", "for how long",
 )
 
 
 def _is_overview(question: str) -> bool:
+    """True only for genuinely broad 'big picture' questions. A specific question
+    (one drug's dose, a single value) stays on precise retrieval even if it
+    happens to contain a clinical word like 'medication'."""
     q = (question or "").lower()
-    return any(h in q for h in _OVERVIEW_HINTS)
+    if any(p in q for p in _OVERVIEW_PHRASES):
+        return True
+    if _ENUM_RE.search(q) and not any(h in q for h in _SPECIFIC_HINTS):
+        return True
+    return False
 
 
 def _build_context(hits: list[dict[str, Any]]) -> str:
