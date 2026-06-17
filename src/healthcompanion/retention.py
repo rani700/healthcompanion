@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import config
-from healthcompanion import patients, vectorstore
+from healthcompanion import auth, patients, vectorstore
 
 _log = logging.getLogger("healthcompanion.retention")
 
@@ -32,10 +32,13 @@ def active_since() -> str:
 def purge_inactive(days: int | None = None) -> list[str]:
     """Hard-delete inactive, self-account-less patients. Returns purged ids."""
     cut = cutoff_iso(days)
+    auth.ensure_schema()  # the unowned check joins the users table
     ids = patients.inactive_unowned_patient_ids(cut)
     for pid in ids:
-        vectorstore.delete_collection(pid)   # vectors first
-        patients.delete_patient_cascade(pid)  # then catalog rows
+        # Catalog (the source of truth for what's visible) first, so a failure on
+        # the vector drop leaves recoverable vectors rather than a ghost record.
+        patients.delete_patient_cascade(pid)
+        vectorstore.delete_collection(pid)
     if ids:
         _log.info("retention purged %d inactive unowned patient(s)", len(ids))
     return ids

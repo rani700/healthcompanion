@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import sys
 import time
 import uuid
@@ -490,6 +491,13 @@ def move_document(doc_id: str, body: MoveDoc, user: dict = Depends(current_user)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     _authorize_patient(user, doc["patient_id"])
+    # A doctor may only re-file a document they can actually see — otherwise they
+    # could pull another doctor's (or an unshared) document into their own visit
+    # and thereby gain visibility into it.
+    if user["role"] == "doctor" and doc_id not in patients.visible_doc_ids_for_doctor(
+        doc["patient_id"], user["id"]
+    ):
+        raise HTTPException(status_code=403, detail="You don't have access to this document.")
     vid = body.visit_id or None
     if vid:
         visit = patients.get_visit(vid)
@@ -572,8 +580,11 @@ def delete_document(doc_id: str, user: dict = Depends(current_user)):
     if block:
         raise HTTPException(status_code=403, detail=block)
 
-    vectorstore.delete_doc_chunks(doc["patient_id"], doc_id)
+    # Catalog row first (it's the source of truth for visibility); then vectors
+    # and the stored file. A failure after this leaves at worst orphaned vectors
+    # for a doc that no longer lists — never a ghost record with no content.
     patients.delete_document(doc_id)
+    vectorstore.delete_doc_chunks(doc["patient_id"], doc_id)
     sp = doc.get("storage_path")
     if sp:
         try:
@@ -708,11 +719,31 @@ def ask(patient_id: str, body: AskRequest, user: dict = Depends(current_user)):
     )
 
 
+# --- Health / readiness ------------------------------------------------------
+# Defined before the static mount so they aren't shadowed by it. The SPA at "/"
+# would always return 200 (even if the DB is down), so probes need these.
+@app.get("/healthz")
+def healthz():
+    """Liveness: the process is up and serving."""
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readyz():
+    """Readiness: the database is reachable and the data dir is writable."""
+    try:
+        patients.get_patient("__readyz__")  # exercises a real DB connection
+        config.ensure_dirs()
+        if not os.access(config.UPLOADS_DIR, os.W_OK):
+            raise RuntimeError("uploads dir not writable")
+    except Exception:
+        raise HTTPException(status_code=503, detail="not ready")
+    return {"status": "ready"}
+
+
 # --- Static frontend (production single-container) ---------------------------
 # When HC_STATIC_DIR points at a built React bundle, serve it from the same
 # origin as the API. Mounted last so it never shadows the API routes above.
-import os
-
 _static_dir = os.getenv("HC_STATIC_DIR")
 if _static_dir and Path(_static_dir).is_dir():
     from fastapi.staticfiles import StaticFiles

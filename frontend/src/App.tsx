@@ -173,9 +173,16 @@ export default function App() {
     try {
       const blob = await api.fetchDocumentBlob(docId);
       const url = URL.createObjectURL(blob);
-      if (tab) tab.location.href = url;
-      else window.open(url, "_blank");
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      // Revoke as soon as the viewer tab goes away (don't hold the blob in
+      // memory); a timer is just a backstop if that event never fires.
+      const revoke = () => URL.revokeObjectURL(url);
+      if (tab) {
+        tab.location.href = url;
+        tab.addEventListener("pagehide", revoke, { once: true });
+      } else {
+        window.open(url, "_blank");
+      }
+      setTimeout(revoke, 60_000);
     } catch (e) {
       if (tab) tab.close();
       handle(e);

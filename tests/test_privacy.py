@@ -53,6 +53,31 @@ def test_doctor_sees_only_own_visits(client):
     assert set(p_visits) == {"fever", "knee", "self note"}  # patient sees all
 
 
+def test_health_endpoints(client):
+    assert client.get("/healthz").json() == {"status": "ok"}
+    assert client.get("/readyz").json() == {"status": "ready"}
+
+
+def test_doctor_cannot_move_invisible_document(client):
+    """A doctor may re-file only documents they can see, not pull another party's
+    document into their own visit to gain visibility."""
+    from healthcompanion import patients
+    da = _doctor(client, "a@x.com")
+    atok, aid = da["token"], da["user"]["id"]
+    pat = _patient(client)
+    ptok, pid, uid = pat["token"], pat["user"]["patient_id"], pat["user"]["id"]
+    # Link Dr A (so they can open the patient) and give A a visit to move into.
+    vid = client.post(f"/patients/{pid}/visits", json={"title": "checkup", "doctor_id": aid},
+                      headers=H(ptok)).json()["id"]
+    # A private patient upload Dr A cannot see.
+    doc_id = patients.add_document(pid, "private.png", "rx", None, 1, uploaded_by=uid)
+
+    r = client.patch(f"/documents/{doc_id}", json={"visit_id": vid}, headers=H(atok))
+    assert r.status_code == 403
+    # The patient (who owns it) still can move it.
+    assert client.patch(f"/documents/{doc_id}", json={"visit_id": vid}, headers=H(ptok)).status_code == 200
+
+
 def test_doctor_drafts_prescription(client, monkeypatch):
     import api
     captured = {}

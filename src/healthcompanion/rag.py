@@ -198,14 +198,24 @@ def ask(
             patient_id, q_vec, query_text=retrieval_text, visit_id=visit_id, doc_ids=doc_ids
         )
         # Nothing stored, or even the closest chunk is too far -> honest not-found.
+        # (Vector search already surfaces the closest chunks, so the pool minimum
+        # is the closest semantic match.)
         if not cands or min(c["distance"] for c in cands) > config.RAG_MAX_DISTANCE:
             return {"answer": _NOT_FOUND, "sources": [], "used_chunks": 0}
 
-        # Opt-in LLM re-rank for sharper ordering, else MMR for diversity.
+        # Opt-in LLM re-rank for sharper ordering, else MMR for diversity. Pass the
+        # contextualized retrieval_text (not the bare question) so a follow-up like
+        # "what's the dosage?" isn't reranked out of context.
         if config.RAG_RERANK:
-            hits = _llm_rerank(question, cands, top_k)
+            hits = _llm_rerank(retrieval_text, cands, top_k)
         else:
             hits = vectorstore._mmr_select(q_vec, cands, top_k, config.RAG_MMR_LAMBDA)
+
+        # Trim weak chunks out of the grounding context: keep only hits within the
+        # relevance threshold (but always keep at least the best one), so a single
+        # far chunk picked for MMR diversity doesn't add noise to the answer.
+        within = [h for h in hits if h.get("distance", 1.0) <= config.RAG_MAX_DISTANCE]
+        hits = within or hits[:1]
         for h in hits:
             h.pop("embedding", None)
 

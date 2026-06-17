@@ -39,6 +39,20 @@ def test_active_since_filter(tmp_path, monkeypatch):
     _ = config
 
 
+def test_purge_on_fresh_db_without_users_table(tmp_path, monkeypatch):
+    """Purge must not crash on a fresh DB where no signup has created the users
+    table yet (the owned-patient check joins it)."""
+    config = _setup(tmp_path, monkeypatch)
+    from healthcompanion import patients, retention, vectorstore
+
+    monkeypatch.setattr(vectorstore, "delete_collection", lambda pid: None)
+
+    orphan = patients.create_patient("Orphan")  # created via patients only; no users table yet
+    _backdate(config.DB_PATH, [orphan])
+    purged = retention.purge_inactive()  # must not raise "no such table: users"
+    assert orphan in purged
+
+
 def test_purge_inactive_keeps_self_accounts(tmp_path, monkeypatch):
     config = _setup(tmp_path, monkeypatch)
     from healthcompanion import auth, patients, retention, vectorstore

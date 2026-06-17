@@ -182,7 +182,11 @@ def get_all_chunks(
     if col.count() == 0:
         return []
     where = _where(patient_id, visit_id, doc_ids)
-    res = col.get(include=["documents", "metadatas"], limit=limit, where=where)
+    # Fetch all matching chunks (Chroma `get` has no ordering), then sort by date
+    # NEWEST-FIRST and cap. This keeps the most recent documents when a record is
+    # larger than `limit` — Chroma's own (insertion) order would otherwise drop
+    # exactly the latest docs before any date sort.
+    res = col.get(include=["documents", "metadatas"], where=where)
     docs = res.get("documents") or []
     metas = res.get("metadatas") or []
     out = [
@@ -194,9 +198,8 @@ def get_all_chunks(
         }
         for doc, meta in zip(docs, metas)
     ]
-    # Group roughly by date so the summary reads chronologically.
-    out.sort(key=lambda c: c["doc_date"] or "")
-    return out
+    out.sort(key=lambda c: c["doc_date"] or "", reverse=True)
+    return out[:limit]
 
 
 def _cand(doc, meta, emb) -> dict:

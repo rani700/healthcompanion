@@ -42,14 +42,23 @@ def _now() -> str:
 
 def _connect() -> sqlite3.Connection:
     config.ensure_dirs()
-    conn = sqlite3.connect(config.DB_PATH)
+    conn = sqlite3.connect(config.DB_PATH, timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    # WAL + wait-timeout so concurrent requests don't trip 'database is locked'.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript(_SCHEMA)
     existing = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
     for col in _USER_EXTRA_COLS:
         if col not in existing:
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
     return conn
+
+
+def ensure_schema() -> None:
+    """Ensure the users table exists. Lets cross-module queries (e.g. retention's
+    owned-patient check) run safely on a fresh DB before any signup."""
+    _connect().close()
 
 
 class AuthError(Exception):
