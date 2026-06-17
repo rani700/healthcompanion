@@ -75,6 +75,65 @@ or a **doctor** (only the patients in your care + documents they share with you)
 
 ## 🏗️ Architecture
 
+```mermaid
+flowchart TB
+  U["Patient / Doctor — Browser<br/>React SPA (Vite/TS) · JWT"]
+  CF["Cloudflare DNS<br/>*.codeshare.co.in"]
+  IGX["nginx Ingress + cert-manager TLS"]
+
+  subgraph POD["healthcompanion Pod · Kubernetes (1 replica, Recreate)"]
+    API["FastAPI (api.py)<br/>serves React build + REST API"]
+    AUTH["Auth & Access Control<br/>JWT HS256 · scrypt · per-patient authz"]
+    subgraph INGEST["RAG — Ingestion (on upload)"]
+      direction TB
+      OCR["extract.py<br/>Gemini vision OCR → text + date"]
+      GD["guardrails.py<br/>medical? + auto type"]
+      CK["chunk.py<br/>section-aware chunks"]
+      EM["embed.py<br/>768-d · batched"]
+      OCR --> GD --> CK --> EM
+    end
+    subgraph QUERY["RAG — Query (on ask)"]
+      direction TB
+      RT{"overview?"}
+      EQ["embed_query"]
+      HY["hybrid retrieve<br/>vector + keyword (RRF)"]
+      GT["relevance gate"]
+      MM["MMR top-k (λ=0.6)"]
+      WH["whole record<br/>newest-first"]
+      GEN["grounded answer<br/>+ citations"]
+      RT -->|specific| EQ --> HY --> GT --> MM --> GEN
+      RT -->|broad| WH --> GEN
+    end
+  end
+
+  subgraph PV["PersistentVolume (RWO)"]
+    CH["ChromaDB<br/>collection per patient"]
+    DB["SQLite catalog<br/>patients/docs/visits/shares"]
+    UP["uploads/ originals"]
+  end
+
+  subgraph GEM["Google Gemini API"]
+    GF["gemini-2.5-flash<br/>OCR + generation"]
+    GE["gemini-embedding-001<br/>768-d embeddings"]
+  end
+
+  U -->|HTTPS| CF --> IGX --> API --> AUTH
+  AUTH -->|upload| OCR
+  AUTH -->|ask| RT
+  EM --> CH
+  EM --> DB
+  API --> UP
+  HY --> CH
+  RT --> DB
+  OCR -.->|OCR| GF
+  EM -.->|embed docs| GE
+  EQ -.->|embed query| GE
+  GEN -.->|generate| GF
+```
+
+<details>
+<summary>Container view &amp; data-flow (text)</summary>
+
 ```
                          ┌─────────────────────── Single container ───────────────────────┐
    Browser ── HTTPS ──►  │  FastAPI  ──serves──►  React/Vite SPA (same origin, no CORS)    │
@@ -91,6 +150,8 @@ or a **doctor** (only the patients in your care + documents they share with you)
                  (vector + keyword RRF, scoped to patient/visit/shared) ─► relevance gate
                  ─► MMR top-k ─► grounded, cited Gemini answer
 ```
+
+</details>
 
 ## 🛠️ Tech stack
 
