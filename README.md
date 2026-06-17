@@ -18,21 +18,22 @@
 
 ---
 
-**HealthCompanion** gives every patient a private, searchable medical record. Doctors
-and patients upload documents — prescriptions, lab reports, clinical notes, **including
+**HealthCompanion** gives every patient a private, searchable medical record. Patients
+and doctors upload documents — prescriptions, lab reports, clinical notes, **including
 scanned and handwritten ones** — and ask natural-language questions that are answered
 **only from that patient's documents**, with source citations. It models how care
 actually works: authentication with roles, **visits/episodes** (a patient treated by
-different doctors for different problems over time), a doctor directory, AI summaries,
-and content guardrails — running live on Kubernetes with full CI/CD.
+different doctors for different problems over time), a doctor directory, **patient-controlled
+document sharing**, in-portal **prescription drafting**, AI summaries, content guardrails,
+and **deletion/retention rules** — running live on Kubernetes with full CI/CD.
 
 > ⚠️ Built for **synthetic / de-identified data** as a portfolio project. Real patient
 > PHI would require Vertex AI under a BAA, audit logging, and stricter controls.
 
 ## 🔗 Live demo
 
-**https://healthcompanion.codeshare.co.in** — sign up as a **doctor** (see all patients)
-or a **patient** (your own record).
+**https://healthcompanion.codeshare.co.in** — sign up as a **patient** (your own record)
+or a **doctor** (only the patients in your care + documents they share with you).
 
 | Login | Portal |
 |---|---|
@@ -40,24 +41,37 @@ or a **patient** (your own record).
 
 ## ✨ Highlights
 
-- **Reads scans & handwriting** — Gemini vision transcribes images/PDFs directly; no
-  separate OCR engine.
+- **Reads scans & handwriting** — Gemini vision transcribes images/PDFs directly (no
+  separate OCR engine), auto-detecting the document's **date** and **type**. Handwritten
+  drug names are transcribed as-written and flagged when uncertain — never "auto-corrected"
+  into a confident wrong name.
+- **Hybrid retrieval** — semantic vector search **+** keyword search, fused with
+  Reciprocal Rank Fusion, then **MMR** for diversity and a **relevance gate** — broad
+  questions summarize the whole record, specific ones do precise top-k retrieval.
 - **Grounded, cited answers** — every answer comes from the patient's own documents and
-  cites the source; says *"I couldn't find that in your records"* instead of hallucinating.
+  cites the source; it **reports, doesn't interpret** (won't invent a diagnosis from an
+  unlabelled value) and says *"I couldn't find that in your records"* instead of hallucinating.
 - **Strict per-patient isolation** — each patient has a dedicated vector collection *and*
-  a metadata filter on every query; a patient can never reach another's data (enforced
-  server-side, tested).
+  a metadata filter on every query *and* API access control; a patient can never reach
+  another's data (enforced server-side, tested).
+- **Privacy by design** — doctors see only their own patients/visits **plus documents the
+  patient explicitly shares**; chat is **never stored** and is invisible to the other party.
 - **Visits / episodes of care** — documents and Q&A are organized into visits, each
-  attributed to a doctor (or self), building a timeline across multiple problems and
-  doctors over time.
+  attributed to a doctor (or self), building a timeline across problems and doctors over time.
+- **In-portal prescriptions** — a doctor can draft a structured prescription and add it
+  straight to the patient's record (searchable like any document).
+- **View the original** — open the actual uploaded scan/PDF to verify a handwritten name
+  or read a graph the OCR can't reproduce.
+- **Deletion & retention rules** — doctors can never delete a record; a patient can delete
+  their own upload while it's private, but it **locks** a few hours after being shared;
+  long-inactive doctor-created patients age out of doctors' views.
 - **Role-aware** — the same records read as clinical notes for a doctor and plain-language
   guidance for a patient.
-- **Content guardrail** — non-medical uploads (marksheets, selfies) are rejected before
-  storage.
+- **Content guardrail** — non-medical uploads (marksheets, selfies) are rejected before storage.
 - **Cached AI summaries** — an at-a-glance clinical summary per patient and per visit,
   regenerated only when documents change.
-- **Production-grade delivery** — single-container build, GitHub Actions CI/CD →
-  GHCR, ArgoCD GitOps on Kubernetes, Let's Encrypt TLS, persistent storage.
+- **Production-grade delivery** — single-container build, GitHub Actions CI/CD → GHCR,
+  ArgoCD GitOps on Kubernetes, Let's Encrypt TLS, persistent storage, health/readiness probes.
 
 ## 🏗️ Architecture
 
@@ -71,8 +85,11 @@ or a **patient** (your own record).
                          │     └─ Google Gemini ── vision OCR · embeddings · generation    │
                          └────────────────────────── /data (persistent volume) ────────────┘
 
-   INGEST:  file ─► Gemini vision (text) ─► medical guardrail ─► chunk ─► embed ─► Chroma (+ visit tag)
-   ASK:     question ─► embed ─► top-k retrieve (this patient / visit) ─► grounded, cited Gemini answer
+   INGEST:  file ─► Gemini vision OCR (text + date) ─► medical guardrail (+ auto type)
+                 ─► section-aware chunk ─► embed ─► Chroma (per-patient, + visit tag) & SQLite
+   ASK:     question ─► route (overview vs specific) ─► embed ─► hybrid retrieve
+                 (vector + keyword RRF, scoped to patient/visit/shared) ─► relevance gate
+                 ─► MMR top-k ─► grounded, cited Gemini answer
 ```
 
 ## 🛠️ Tech stack
@@ -114,11 +131,15 @@ python cli.py ask <id> "Which medicines do I take at night?" --role patient
 All `/patients*` routes require `Authorization: Bearer <jwt>`.
 
 ```
-POST /auth/signup · /auth/login        GET /auth/me · /doctors
-GET/POST /patients                     GET/PATCH /patients/{id}
-POST /patients/{id}/documents          PATCH /documents/{id}   (re-file into a visit)
-POST /patients/{id}/ask                GET  /patients/{id}/summary
+POST /auth/signup · /auth/login        GET /auth/me · /doctors · PATCH /auth/profile
+GET/POST /patients                     GET/PATCH /patients/{id} · GET /patients/{id}/care-team
+POST /patients/{id}/documents          GET /patients/{id}/documents
+PATCH/DELETE /documents/{id}           GET /documents/{id}/file        (view original scan/PDF)
+GET/POST/DELETE /documents/{id}/share  GET /documents/{id}/shares      (patient-controlled sharing)
+POST /patients/{id}/prescriptions      (doctor drafts a prescription)
+POST /patients/{id}/ask                GET /patients/{id}/summary
 GET/POST /patients/{id}/visits         POST /visits/{id}/close · GET /visits/{id}/summary
+GET /healthz · /readyz                 (liveness / readiness probes)
 ```
 
 Interactive OpenAPI docs are served at `/docs`.
@@ -126,20 +147,23 @@ Interactive OpenAPI docs are served at `/docs`.
 ## 🧪 Tests
 
 ```bash
-pytest        # 34 tests; all Gemini calls mocked → offline, zero API quota
+pytest        # 67 tests; all Gemini calls mocked → offline, zero API quota
 ```
 
-Covers the RAG pipeline, **patient isolation**, auth & access control, the medical
-guardrail, summary caching, and the visits/care-team model.
+Covers the RAG pipeline, **patient isolation & privacy scoping**, auth & access control,
+the medical guardrail, document sharing, in-portal prescriptions, the deletion/retention
+rules, summary caching, and the visits/care-team model. A separate retrieval **eval
+harness** (`scripts/eval_retrieval.py`) measures hit-rate against the real model.
 
 ## 📦 Project structure
 
 ```
 api.py · cli.py · config.py · Dockerfile
 src/healthcompanion/   gemini_client · extract · chunk · embed · vectorstore
-                       guardrails · ingest · rag · security · auth · patients
+                       guardrails · ingest · rag · security · auth · patients · retention
 frontend/src/          api.ts · auth.tsx · App.tsx · components/*
 tests/                 pytest suite (mocked Gemini)
+eval/ · scripts/       retrieval eval harness
 .github/workflows/     release-and-publish.yml (CI/CD → GHCR)
 ```
 
@@ -153,9 +177,17 @@ Encrypt certificate and a persistent volume for patient data.
 ## 🔒 Security & compliance
 
 - Secrets (Gemini key, JWT secret) are **never committed** — `.env` is git-ignored;
-  production uses Kubernetes Secrets.
-- Passwords hashed with `scrypt`; sessions are signed JWTs.
-- Patient isolation is **defense-in-depth** (per-patient collection + metadata filter).
+  production uses Kubernetes Secrets, and the app refuses to boot in production with the
+  default dev JWT secret.
+- Passwords hashed with `scrypt` (constant-time verify); sessions are single-algorithm
+  signed JWTs re-validated against the DB on every request.
+- Patient isolation is **defense-in-depth** (per-patient collection + metadata filter +
+  API access control). SQLite runs in WAL mode for safe concurrent access.
+- **Privacy model:** doctors see only their own patients/visits plus explicitly shared
+  documents; chat is never stored or shared with the other party.
+- **Deletion/retention:** doctors can never delete a record; a patient may delete their
+  own upload while private, locking a few hours after sharing; long-inactive doctor-created
+  patients age out of doctors' views and orphans are purged.
 - Intended for **synthetic/de-identified data**; production PHI needs Vertex AI under a
   BAA, encryption at rest, and audit logging.
 
