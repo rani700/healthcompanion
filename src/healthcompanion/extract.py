@@ -8,8 +8,12 @@ Files API.
 
 from __future__ import annotations
 
+import json
 import mimetypes
+import re
+from datetime import date as _date
 from pathlib import Path
+from typing import Any
 
 import config
 from healthcompanion.gemini_client import call_with_retry, get_client
@@ -52,10 +56,39 @@ _EXTRACTION_PROMPT = (
     "name — dosage — frequency/timing — duration (use '(not specified)' for any "
     "part that genuinely isn't written).\n"
     "List any tests/investigations advised, and any diagnosis written.\n"
-    "If a date appears on the document, state it.\n"
     "Do not add commentary or information that is not present. "
-    "If the document is unreadable, say so."
+    "If the document is unreadable, say so.\n\n"
+    "Return a JSON object with exactly two fields:\n"
+    '  "text": the full transcription following the rules above, and\n'
+    '  "document_date": the document\'s own date (visit/report/prescription date, '
+    "NOT a date of birth or a future follow-up date) as YYYY-MM-DD. Dates on "
+    "Indian documents are day/month/year. If no clear date is written, use an "
+    "empty string."
 )
+
+
+def _normalize_date(value: Any) -> str | None:
+    """Coerce a model-supplied date into YYYY-MM-DD, or None if absent/implausible."""
+    if not value or not isinstance(value, str):
+        return None
+    s = value.strip()
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
+    if not m:
+        # Accept a DD/MM/YYYY or DD-MM-YYYY fallback (Indian convention).
+        m2 = re.match(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$", s)
+        if not m2:
+            return None
+        d, mo, y = (int(x) for x in m2.groups())
+    else:
+        y, mo, d = (int(x) for x in m.groups())
+    try:
+        parsed = _date(y, mo, d)
+    except ValueError:
+        return None
+    # Reject implausible dates (future, or absurdly old) — likely a misread.
+    if parsed > _date.today() or y < 1900:
+        return None
+    return parsed.isoformat()
 
 
 def _guess_mime(path: Path) -> str:
@@ -68,11 +101,13 @@ def _guess_mime(path: Path) -> str:
     raise ValueError(f"Unsupported or unrecognized file type: {path.name}")
 
 
-def extract_text(path: str | Path) -> str:
-    """Extract the full text content of a document file using Gemini.
+def extract(path: str | Path) -> dict[str, Any]:
+    """Extract a document's full text AND its own date.
 
-    Plain-text files are read directly. Everything else (PDF/image) is sent to
-    Gemini for transcription — inline if small, via the Files API if large.
+    Returns ``{"text": <transcription>, "date": "YYYY-MM-DD" | None}``. Plain-text
+    files are read directly (no date detection). Everything else (PDF/image) is
+    transcribed by Gemini in JSON mode so the date written on the page can be
+    captured — inline if small, via the Files API if large.
     """
     path = Path(path)
     if not path.is_file():
@@ -80,9 +115,12 @@ def extract_text(path: str | Path) -> str:
 
     mime = _guess_mime(path)
 
-    # Plain text: no model call needed.
+    # Plain text: no model call needed (and no reliable date to detect).
     if mime == "text/plain":
-        return path.read_text(encoding="utf-8", errors="replace").strip()
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+        if not text:
+            raise RuntimeError(f"Empty file: {path.name}")
+        return {"text": text, "date": None}
 
     client = get_client()
     from google.genai import types
@@ -102,6 +140,9 @@ def extract_text(path: str | Path) -> str:
             lambda: client.models.generate_content(
                 model=config.MODEL_GEN,
                 contents=contents,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json", temperature=0
+                ),
             )
         )
     finally:
@@ -112,7 +153,21 @@ def extract_text(path: str | Path) -> str:
             except Exception:
                 pass
 
-    text = (response.text or "").strip()
+    raw = (response.text or "").strip()
+    text, doc_date = raw, None
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            text = (data.get("text") or "").strip()
+            doc_date = _normalize_date(data.get("document_date"))
+    except (ValueError, TypeError):
+        # Model didn't return clean JSON — fall back to the raw text, no date.
+        text = raw
     if not text:
         raise RuntimeError(f"Gemini returned no text for {path.name}")
-    return text
+    return {"text": text, "date": doc_date}
+
+
+def extract_text(path: str | Path) -> str:
+    """Back-compat: just the transcription (see :func:`extract` for text + date)."""
+    return extract(path)["text"]

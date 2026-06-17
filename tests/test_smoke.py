@@ -147,3 +147,45 @@ def test_unknown_patient_raises(env):
 
     with pytest.raises(ValueError):
         ask("does-not-exist", "anything")
+
+
+def test_normalize_date():
+    from healthcompanion.extract import _normalize_date
+
+    assert _normalize_date("2026-03-28") == "2026-03-28"
+    assert _normalize_date("28/03/2026") == "2026-03-28"   # DD/MM/YYYY (Indian)
+    assert _normalize_date("28-03-2026") == "2026-03-28"
+    assert _normalize_date("") is None
+    assert _normalize_date(None) is None
+    assert _normalize_date("garbage") is None
+    assert _normalize_date("2099-01-01") is None           # future -> rejected
+    assert _normalize_date("2026-13-40") is None           # invalid -> rejected
+
+
+def test_ingest_autofills_date_from_document(env, tmp_path, monkeypatch):
+    from healthcompanion import ingest, patients
+
+    pid = patients.create_patient("Date Patient")
+    monkeypatch.setattr(
+        ingest, "extract",
+        lambda p: {"text": "Lab report. Hb 13 g/dL.", "date": "2026-03-28"},
+    )
+    doc = _write_doc(tmp_path, "lab.txt", "ignored")
+    # No date supplied by the uploader -> filled from the document.
+    res = ingest.ingest_document(pid, doc, doc_type="lab")
+    assert res["doc_date"] == "2026-03-28"
+    assert patients.list_documents(pid)[0]["doc_date"] == "2026-03-28"
+
+
+def test_uploader_date_overrides_detected(env, tmp_path, monkeypatch):
+    from healthcompanion import ingest, patients
+
+    pid = patients.create_patient("Date Patient 2")
+    monkeypatch.setattr(
+        ingest, "extract",
+        lambda p: {"text": "Lab report.", "date": "2026-03-28"},
+    )
+    doc = _write_doc(tmp_path, "lab2.txt", "ignored")
+    # An explicit uploader date always wins over the detected one.
+    res = ingest.ingest_document(pid, doc, doc_type="lab", doc_date="2020-01-01")
+    assert res["doc_date"] == "2020-01-01"

@@ -9,7 +9,7 @@ from typing import Any
 from healthcompanion import patients, vectorstore
 from healthcompanion.chunk import chunk_text
 from healthcompanion.embed import embed_documents
-from healthcompanion.extract import extract_text
+from healthcompanion.extract import extract
 from healthcompanion.guardrails import assert_medical
 
 
@@ -70,7 +70,11 @@ def ingest_document(
     path = Path(path)
     filename = path.name
 
-    text = extract_text(path)
+    extracted = extract(path)
+    text = extracted["text"]
+    # If the uploader didn't specify a date, use the one read off the document.
+    if not doc_date and extracted.get("date"):
+        doc_date = extracted["date"]
 
     # Guardrail: only genuine medical documents may enter a patient record.
     assert_medical(text)
