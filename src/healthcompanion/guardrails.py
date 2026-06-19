@@ -20,13 +20,20 @@ class NotMedicalDocument(Exception):
     """Raised when an uploaded document isn't a medical record."""
 
 
-_CLASSIFY_PROMPT = """You are a strict gatekeeper for a clinical records system.
-Decide whether the document content below is a genuine MEDICAL document — for
-example a prescription, lab/test report, radiology/imaging report, discharge
-summary, clinical/consultation note, vaccination record, or medical bill.
+_CLASSIFY_PROMPT = """You are a gatekeeper for a clinical records system. Decide
+whether the content below is a genuine MEDICAL document — for example a
+prescription, lab/test report, radiology/imaging study or film (X-ray, CT, MRI,
+ultrasound/sonography, ECG/EKG, mammogram), discharge summary,
+clinical/consultation note, vaccination record, or medical bill.
+
+A radiology/imaging study counts as MEDICAL (type "imaging") even when it contains
+little text, as long as the content identifies it as a clinical image (it names a
+modality/body region, or carries a hospital/patient/exam identifier). Do not reject
+an imaging study merely for being short on text.
 
 Things that are NOT medical: academic marksheets/certificates, IDs, invoices for
-non-medical goods, selfies or random photos, screenshots of chats, memes, receipts.
+non-medical goods, selfies or random non-clinical photos, screenshots of chats,
+memes, receipts.
 
 Respond with ONLY compact JSON, no prose:
 {"medical": true|false, "type": "rx|lab|imaging|note|other|non_medical", "reason": "<=12 words"}"""

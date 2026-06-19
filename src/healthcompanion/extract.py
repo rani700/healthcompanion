@@ -56,8 +56,16 @@ _EXTRACTION_PROMPT = (
     "name — dosage — frequency/timing — duration (use '(not specified)' for any "
     "part that genuinely isn't written).\n"
     "List any tests/investigations advised, and any diagnosis written.\n"
-    "Do not add commentary or information that is not present. "
-    "If the document is unreadable, say so.\n\n"
+    "MEDICAL IMAGING: if this is a radiology/imaging study (X-ray, CT, MRI, "
+    "ultrasound/sonography, ECG/EKG, mammogram, etc.) it may contain little or no "
+    "text. Still IDENTIFY it: state the modality and the body region/view you can "
+    "see (e.g. 'Chest X-ray, PA view' or 'Ultrasound — abdomen') and transcribe any "
+    "printed labels, patient/hospital identifiers, and dates. Do NOT invent, infer, "
+    "or describe clinical findings or a diagnosis from the image itself — only state "
+    "what the image plainly IS, never what it shows clinically.\n"
+    "Do not invent findings, diagnoses, or information beyond what is written or "
+    "directly identifiable (a film's modality/region is identifiable; its clinical "
+    "findings are not). If the document is truly unreadable, say so.\n\n"
     "Return a JSON object with exactly two fields:\n"
     '  "text": the full transcription following the rules above, and\n'
     '  "document_date": the document\'s own date (visit/report/prescription date, '
